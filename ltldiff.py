@@ -214,6 +214,28 @@ class Next:
         return self.exp.satisfy(t + 1)
 
 
+class WeakNext:
+    """ N(X) """
+    def __init__(self, exp, max_t: int, batch_size: int):
+        self.exp = exp
+        self.max_t = max_t
+        self.batch_size = batch_size
+
+    def loss(self, t):
+        return self.exp.loss(t + 1)
+    
+    def eval(self, t: int) -> torch.tensor:
+    	assert t <= self.max_t
+    	if t < self.max_t - 1:
+    		return self.exp.eval(t + 1)
+    	else:
+        	return torch.ones(self.batch_size)
+
+
+    def satisfy(self, t):
+        return self.exp.satisfy(t + 1)
+
+
 class Always:
     """ Always G """
     def __init__(self, exp, max_t: int):
@@ -261,6 +283,98 @@ class Eventually:
         return sats.any(1)
     
 
+class Release:
+    def __init__(self, a, b, max_t: int):
+        self.a = a
+        self.b = b
+        self.max_t = max_t
+
+    def loss(self, t):
+        raise NotImplementedError()
+        
+    def eval(self, t: int) -> torch.tensor:
+	    assert t <= self.max_t
+	    sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
+	    sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
+	    ys = torch.zeros(sats_a.shape)
+	    ys[:, -1] = sats_b[:, -1]
+	    for i in reversed(range(0, ys.shape[1] - 1)):
+	    	ys[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], ys[:, i + 1]))
+	    return ys[:, 0]
+
+    def satisfy(self, t):
+    	# I don't think it is correct
+        sats_a = torch.stack([self.a.satisfy(i) for i in range(t, self.max_t)])
+        sats_b = torch.stack([self.b.satisfy(i) for i in range(t, self.max_t)])
+
+        eventually_b = sats_b.any(dim=0, keepdim=True)
+        bs_onward = torch.cumsum(sats_b.int(), dim=0)
+
+        keep_a_until = (sats_a | bs_onward)
+        return eventually_b & keep_a_until
+
+
+class StrongRelease:
+    def __init__(self, a, b, max_t: int):
+        self.a = a
+        self.b = b
+        self.max_t = max_t
+
+    def loss(self, t):
+        raise NotImplementedError()
+        
+    def eval(self, t: int) -> torch.tensor:
+	    assert t <= self.max_t
+	    sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
+	    sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
+	    ys = torch.zeros(sats_a.shape)
+	    ys[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])
+	    for i in reversed(range(0, ys.shape[1] - 1)):
+	    	ys[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], ys[:, i + 1]))
+	    return ys[:, 0]
+
+    def satisfy(self, t):
+    	# I don't think it is correct
+        sats_a = torch.stack([self.a.satisfy(i) for i in range(t, self.max_t)])
+        sats_b = torch.stack([self.b.satisfy(i) for i in range(t, self.max_t)])
+
+        eventually_b = sats_b.any(dim=0, keepdim=True)
+        bs_onward = torch.cumsum(sats_b.int(), dim=0)
+
+        keep_a_until = (sats_a | bs_onward)
+        return eventually_b & keep_a_until
+
+class WeakUntil:
+    def __init__(self, a, b, max_t: int):
+        self.a = a
+        self.b = b
+        self.max_t = max_t
+
+    def loss(self, t):
+        raise NotImplementedError()
+        
+    def eval(self, t: int) -> torch.tensor:
+	    assert t <= self.max_t
+	    sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
+	    sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
+	    ys = torch.zeros(sats_a.shape)
+	    ys[:, -1] = sats_a[:, -1]
+	    for i in reversed(range(0, ys.shape[1] - 1)):
+	    	ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+	    return ys[:, 0]
+
+    def satisfy(self, t):
+    	# I don't think it is correct
+        sats_a = torch.stack([self.a.satisfy(i) for i in range(t, self.max_t)])
+        sats_b = torch.stack([self.b.satisfy(i) for i in range(t, self.max_t)])
+
+        eventually_b = sats_b.any(dim=0, keepdim=True)
+        bs_onward = torch.cumsum(sats_b.int(), dim=0)
+
+        keep_a_until = (sats_a | bs_onward)
+        return eventually_b & keep_a_until
+
+
 class Until:
     def __init__(self, a, b, max_t: int):
         self.a = a
@@ -275,10 +389,9 @@ class Until:
 	    sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
 	    sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
 	    ys = torch.zeros(sats_a.shape)
-	    worst_ws = torch.minimum(sats_a, sats_b)
-	    ys[:, -1] = worst_ws[:, -1]
+	    ys[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])
 	    for i in reversed(range(0, ys.shape[1] - 1)):
-	    	ys[:, i] = torch.fmax(worst_ws[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+	    	ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
 	    return ys[:, 0]
 
     def satisfy(self, t):
