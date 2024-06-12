@@ -21,8 +21,6 @@ formulas_dict = {'complexF': "(a U b) & G(a -> X(b)) & G(b -> X(c))",
 		'eventually': "F(a)",
 		'always': "G(a)",
 		'until': "a U b"}
-results = ['complexF', 'nextAct', 'eventually', 'always', 'until']
-
 
 for formula_name, formuala_string in formulas_dict.items():
     results = []
