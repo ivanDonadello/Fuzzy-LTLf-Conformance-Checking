@@ -52,7 +52,7 @@ The LTLf syntax adopted is the following:
 |true            |True                           |`true`           |
 |false           |False                          |`false`          |
 |&, &&           |And                            |`a && b`         |
-|\|, \|\|        |Or                             |`a || b`         |
+|\|, \|\|        |Or                             |`a \|\| b`         |
 |!, ~            |Not                            |`!a`             |
 |->, =>          |Implication                    |`a => b`         |
 |X               |Next                           |`X(a)` or `X a`  |
