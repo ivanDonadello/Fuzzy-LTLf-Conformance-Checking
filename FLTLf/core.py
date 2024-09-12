@@ -1,210 +1,606 @@
 import torch
+import input
+from itertools import chain, combinations
+
+
+# tensor_log.shape = (num_traces, num_events, num_predicates)
+tensor_log: torch.Tensor #TODO slice the tensor with 
+batch_size: int
+maxlength: int
+
+
+
+##### propositional #####
 
 class Predicate:
-    def __init__(self, data, predicate_name: str):
-        assert data.dim() == 2, "Dynamic term needs 2 dims: Batch_Size x Time_Steps" 
-        self.data = data
+    # atomic predicate
+    def __init__(self, predicate_name: str):
         self.predicate_name = predicate_name
 
-    def eval(self, t: int) -> torch.tensor:
-        return self.data[:, t]; 
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        return tensor_log[:, i, input.predicate_names.index(self.predicate_name)]; 
+
+    def print(self):
+        return self.predicate_name
         
-class NegPredicate:
-    def __init__(self, predicate: Predicate):
-        self.predicate = predicate
-        self.name: str = "NegPredicate"
- 
-    def eval(self, t) -> torch.tensor:
-        return 1.0 - self.predicate.eval(t)
+class ComparisonTerm:
+    # comparison term
+    def __init__(self, a, b, op):
+        self.a = a
+        self.b = b
+        self.op = op
 
-class BoolConst:
-    def __init__(self, x, batch_size):
-        self.x = x                           
-        self.batch_size = batch_size
-        self.name: str = "Boolean"
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
 
-    def eval(self, t) -> torch.tensor:
-        if(self.x==1):
-            return torch.ones(self.batch_size)
+        sat_a = self.a.eval(i)
+        
+        if(isinstance(self.b, float)):
+            sat_b = self.b
         else:
-            return torch.zeros(self.batch_size)
-        
+            sat_b = self.b.eval(i)
+
+        match self.op:
+            case "<":
+                return (sat_a < sat_b)
+            case ">":
+                return (sat_a > sat_b)
+            case "==":
+                return (sat_a == sat_b)
+            
+
+    def print(self):
+        if(isinstance(self.b, float)):
+            return self.a.print() + " " + self.op + " " + str(self.b)
+        else:
+            return self.a.print() + " " + self.op + " " + self.b.print()
+
+class NegPredicate:
+    # negated atomic predicate
+    def __init__(self, p: Predicate):
+        self.exp = p
+        self.name = "NegPredicate"
+ 
+    def eval(self, i) -> torch.tensor:
+        return 1.0 - self.exp.eval(i)
+    
+    def print(self):
+        return "NOT(" + self.exp.print() + ")"
+    
+class BoolConst:
+    # boolean contant
+    def __init__(self, const):
+        self.const = const               
+        self.name = "Boolean"
+
+    def eval(self, i) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        if(self.const==1):
+            return torch.ones(batch_size)
+        else:
+            return torch.zeros(batch_size)
+
+    def print(self):
+        return "TRUE" if self.const else "FALSE"
+            
 class And:
-    """ E_1 and E_2 and ... E_k"""
+    # n-ary conjunction 
     def __init__(self, exprs: list):
         self.exprs = exprs
-        self.name: str = "And"
+        self.name = "AND"
 
-    def eval(self, t: int) -> torch.tensor:
-        sats = torch.stack([exp.eval(t) for exp in self.exprs])
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats = torch.stack([exp.eval(i) for exp in self.exprs])
         return torch.min(sats, 0).values
 
+    def print(self):
+        strings = [ exp.print() for exp in self.exprs]
+        return (" " + self.name + " ").join(strings)
+    
 class Or:
-    """ E_1 or E_2 or .... E_k"""
+    # n-ary disjunction
     def __init__(self, exprs: list):
         self.exprs = exprs
-        self.name: str = "Or"
+        self.name = "OR"
 
-    def eval(self, t: int) -> torch.tensor:
-        sats = torch.stack([exp.eval(t) for exp in self.exprs])
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats = torch.stack([exp.eval(i) for exp in self.exprs])
         return torch.max(sats, 0).values
 
+    def print(self):
+        strings = [ exp.print() for exp in self.exprs]
+        return (" " + self.name + " ").join(strings)
+    
 class Implication:
-    """ A -> B """
+    # implication
     def __init__(self, a, b):
         self.a = a
         self.b = b
         self.imp = Or([Negate(a), b])
-        self.name: str = "Implication"
+        self.name = "IMPLIES"
 
-    def eval(self, t: int) -> torch.tensor:
-        return self.imp.eval(t)
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        return self.imp.eval(i)
+
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+    
+#### standard LTLf Temporal Operators ####
 
 class Next:
-    """ N(X) """
-    def __init__(self, exp, max_t: int, batch_size:int):   
+    # next operator
+    def __init__(self, exp):   
         self.exp = exp
-        self.max_t = max_t
-        self.batch_size = batch_size
-        self.name: str = "Next"
+        self.name = "NEXT"
 
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        if t < self.max_t - 1:
-            return self.exp.eval(t + 1)
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        if i < maxlength - 1:  
+            sats = self.exp.eval(i + 1)
+            sats[ sats.isnan() ] = 0
+            return sats
         else:
-            return torch.zeros(self.batch_size)
+            return torch.zeros(batch_size)
 
-
-class WeakNext:
-    """ N(X) """
-    def __init__(self, exp, max_t: int, batch_size: int):
-        self.exp = exp
-        self.max_t = max_t
-        self.batch_size = batch_size
-        self.name: str = "WeakNext"
-
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        if t < self.max_t - 1:
-            return self.exp.eval(t + 1)
-        else:
-            return torch.ones(self.batch_size)
-
-class Always:
-    """ Always G """
-    def __init__(self, exp, max_t: int):
-        self.exp = exp
-        self.max_t = max_t
-        self.name: str = "Always"
-
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        sats = torch.stack([self.exp.eval(i) for i in range(t, self.max_t)], 1)
-        sats = torch.nan_to_num(sats, nan=1)
-        return torch.min(sats, 1).values
-
-
-class Eventually:
-    """ Eventually F """
-    def __init__(self, exp, max_t: int):
-        self.exp = exp
-        self.max_t = max_t
-        self.name: str = "Eventually"
-
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        sats = torch.stack([self.exp.eval(i) for i in range(t, self.max_t)], 1)
-        sats = torch.nan_to_num(sats, nan=0)
-        return torch.max(sats, 1).values
+    def print(self):
+        return self.name + "(" + self.exp.print() + ")"
     
+class WeakNext:
+    # weak next operator
+    def __init__(self, exp):
+        self.exp = exp
+        self.name = "WEAK_NEXT"
 
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        if i < maxlength - 1:  
+            sats = self.exp.eval(i + 1)
+            sats[ sats.isnan() ] = 1
+            return sats
+        else:
+            return torch.ones(batch_size)
+
+    def print(self):
+        return self.name + "(" + self.exp.print() + ")"
+    
+class Always:
+    # always operator
+    def __init__(self, exp):
+        self.exp = exp
+        self.name = "ALWAYS"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats = torch.stack([self.exp.eval(j) for j in range(i, maxlength)], 1)
+        return choosemin(sats)
+        
+    def print(self):
+        return self.name + "(" + self.exp.print() + ")"
+    
+class Eventually:
+    # eventually operator
+    def __init__(self, exp):
+        self.exp = exp
+        self.name = "EVENTUALLY"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats = torch.stack([self.exp.eval(j) for j in range(i, maxlength)], 1)        
+        return choosemax(sats)
+
+    def print(self):
+        return self.name + "(" + self.exp.print() + ")"
+    
 class Release:
-    def __init__(self, a, b, max_t: int):
+    # release operator
+    def __init__(self, a, b):
         self.a = a
         self.b = b
-        self.max_t = max_t
-        self.name: str = "Release"
+        self.name = "RELEASE"
 
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
-        sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
         ys = torch.zeros(sats_a.shape)
 
-        ys[:, -1] = sats_b[:, -1] #correct: max(min(a,b),b)=b
+        ys[:, -1] = sats_b[:, -1] 
         
         for i in reversed(range(0, ys.shape[1] - 1)):
             ys[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], ys[:, i + 1]))
         return ys[:, 0]
 
-
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+    
 class StrongRelease:
-    def __init__(self, a, b, max_t: int):
+    # strong release opeator
+    def __init__(self, a, b):
         self.a = a
         self.b = b
-        self.max_t = max_t
-        self.name: str = "StrongRelease"
+        self.name = "STRONG_RELEASE"
 
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
-        sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
         ys = torch.zeros(sats_a.shape)
 
-        ys[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  #correct: min(a,b)
+        ys[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  
         
         for i in reversed(range(0, ys.shape[1] - 1)):
             ys[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], ys[:, i + 1]))
         return ys[:, 0]
 
-
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+    
 class WeakUntil:
-    def __init__(self, a, b, max_t: int):
+    # weak until operator
+    def __init__(self, a, b):
         self.a = a
         self.b = b
-        self.max_t = max_t
-        self.name: str = "WeakUntil"
+        self.name = "WEAK_UNTIL"
 
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
-        sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
-        sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
 
         ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = torch.nan_to_num(torch.fmax(sats_a[:, -1], sats_b[:, -1]),nan=0)
+        ys[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
 
         for i in reversed(range(0, ys.shape[1] - 1)):
             ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
         return ys[:, 0]
 
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
 
 class Until:
-    def __init__(self, a, b, max_t: int):
+    # until operator
+    def __init__(self, a, b):
         self.a = a
         self.b = b
-        self.max_t = max_t
-        self.name: str = "Until"
+        self.name = "UNTIL"
         
-    def eval(self, t: int) -> torch.tensor:
-        assert t <= self.max_t
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
 
-        sats_a = torch.stack([self.a.eval(i) for i in range(t, self.max_t)], 1)
-        sats_b = torch.stack([self.b.eval(i) for i in range(t, self.max_t)], 1)
-        
+        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
+
         ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = torch.nan_to_num(sats_b[:, -1],nan=0)
+        ys[:, -1] = sats_b[:, -1]
                                
         for i in reversed(range(0, ys.shape[1]-1)):
             ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
         return ys[:, 0]
 
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+    
+#### Fuzzy-time LTL Temporal Operators ####
 
-class Negate:
-    """ ¬X """
+class Soon:
+    # soon operator
     def __init__(self, exp):
         self.exp = exp
-        self.name: str = "Negation"
+        self.name = "SOON"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        # diffently from the semantics, we do not evaluate X phi but phi
+        # we retrict to instants in [i+1, min(i+eta,last)]
+        sats = torch.stack([( torch.mul( self.exp.eval(j), input.weights(j-i) )) for j in range(i+1, min(i+input.eta,maxlength) )], 1)
+        return choosemax(sats)
+   
+    def print(self):
+        return self.name + "(" + self.exp.print() + ")"
+    
+class BoundedEventually:
+    # bounded version of the eventually operator
+    def __init__(self, exp, t: int):
+        self.exp = exp
+        self.t = t
+        
+        self.name = "EVENTUALLY_IN_"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        # from i to min(i+t,last)
+        sats = torch.stack([ self.exp.eval(j) for j in range(i, min(i+self.t+1,maxlength) )], 1)
+        return choosemax(sats)
+   
+    def print(self):
+        return self.name +  str(self.t) + "(" + self.exp.print() + ")"
+    
+class BoundedGlobally:
+    # bounded version of the awalys operator
+    def __init__(self, exp, t: int):
+        self.exp = exp
+        self.t = t
+        self.name = "ALWAYS_IN_"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        #from i to min(i+t,last)
+        sats = torch.stack([ self.exp.eval(j) for j in range(i, min(i+self.t+1,maxlength) )], 1)
+        return choosemin(sats)
+   
+    def print(self):
+        return self.name +  str(self.t) + "(" + self.exp.print() + ")"
+
+class Within:
+    # within operator
+    def __init__(self, exp, t: int):
+        self.exp = exp
+        self.t = t        
+        self.name = "WITHIN_"
+
+    def eval(self, i: int) -> torch.tensor:
+        # we retrict to instants in [i, min(i+t+eta,last)]
+        sats = torch.stack([( torch.mul( self.exp.eval(j), input.weights(j-i-self.t) )) for j in range(i, min(i+self.t+input.eta,maxlength) )], 1)
+        return choosemax(sats)
+   
+    def print(self):
+        return self.name +  str(self.t) + "(" + self.exp.print() + ")"
+
+class BoundedUntil:
+    # bounded version of the until operator
+    def __init__(self, a, b, t: int):
+        self.a = a
+        self.b = b
+        self.t = t
+        self.name = "UNTIL_"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        if(self.t<1):
+            return self.b.eval(i)
+        else:
+            # from i to min(i+t,last)
+            sats_a = torch.stack([self.a.eval(j) for j in range(i, min(i+self.t+1, maxlength))], 1)
+            sats_b = torch.stack([self.b.eval(j) for j in range(i, min(i+self.t+1, maxlength))], 1)
+
+            ys = torch.zeros(sats_a.shape)
+            ys[:, -1] = sats_b[:, -1]
+                                
+            for i in reversed(range(0, ys.shape[1]-1)):
+                ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+            return ys[:, 0]
+   
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + str(self.t) + " " + self.b.print() + ")"           
+
+
+class AlmostAlways:
+    # almost always operator
+    def __init__(self, exp):
+        self.exp = exp
+        self.name = "ALMOST_ALWAYS"
+        
+    def eval(self, i: int) -> torch.tensor:
+        
+        globalmax = torch.zeros(batch_size)
+
+        global tensor_log
+        
+        #this would be be exponential: 
+        # try filtering each element of the powerset of indexes, of length up to eta-1
+        #for exclude in list(powerset(range(i,maxlength),input.eta)):
+
+        #instead, we use sorting 
+        #to exclude incrementally i,i+1,... up to min(eta-1,last)
+
+        #first, we evaluate without filtering any index
+        sats = torch.stack([  self.exp.eval(j) for j in range(i,maxlength)], 1)
+        globalmax = choosemin(sats)
+
+        #cloning, since this could be a subcall
+        orig_tensor_log = tensor_log.clone()
+        tensor_log,indexes = tensor_log.sort(dim=1)
+        
+        exclude = []
+        
+        #we can exclude up to eta-1 events, so from i to min(i+eta-1,last)
+        for x in range(i, min(i+input.eta,maxlength)):
+            exclude.append(x)
+            
+            if(len(exclude)<maxlength):
+
+                #incrmeentally, we exclude instants at the beginning of the sorted sequence
+                keep = (x for x in range(i, maxlength) if x not in exclude)
+                sats = torch.stack([  self.exp.eval(j) for j in keep], 1)
+
+                #print(f"--- exclude {exclude} weight is {input.weights(len(exclude))}")
+                #print(f"sats: {sats}")
+
+                mins = torch.mul( choosemin(sats) , input.weights(len(exclude)))
+
+                #print(f"mins: {mins}")
+
+                globalmax = torch.fmax(globalmax,mins)
+
+        #restoring the log
+        tensor_log = orig_tensor_log
+        return globalmax
+        
+    def print(self):
+        return self.name + "(" + self.exp.print() + ")"
+    
+
+class BoundedAlmostAlways:
+    # bounded version of the almost always operator
+    def __init__(self, exp, t:int):
+        self.exp = exp
+        self.t = t
+        self.name = "ALMOST_ALWAYS_"
+        
+    def eval(self, i: int) -> torch.tensor:
+        
+        globalmax = torch.zeros(batch_size)
+
+        global tensor_log
+        
+        sats = torch.stack([  self.exp.eval(j) for j in range(i,min(i+input.eta,maxlength))], 1)
+        globalmax = choosemin(sats)
+
+        orig_tensor_log = tensor_log.clone()
+        tensor_log,indexes = tensor_log.sort(dim=1)
+        
+        exclude = []
+
+        # t used here
+        #we can exclude up to eta-1 events, so from i to min(eta-1,i+t,last)
+        for x in range(i, min(input.eta,i+self.t+1,maxlength)):
+            exclude.append(x)
+            print(i)
+            print(str(input.eta))
+            print(str(i+self.t+1))
+            print(maxlength)
+            
+            if(i+len(exclude)<maxlength):
+
+                print(f"--- exclude {exclude} weight is {input.weights(len(exclude))}")
+                
+                keep = (x for x in range(i, min(i+self.t+1,maxlength)) if x not in exclude)
+                sats = torch.stack([  self.exp.eval(j) for j in keep], 1)
+
+                print(f"sats: {sats}")
+
+                mins = torch.mul( choosemin(sats) , input.weights(len(exclude)))
+
+                #print(f"mins: {mins}")
+
+                globalmax = torch.fmax(globalmax,mins)
+
+        #restoring the log
+        tensor_log = orig_tensor_log
+        return globalmax
+        
+    def print(self):
+        return self.name + str(self.t) + "(" + self.exp.print() + ")"
+    
+
+
+class AlmostUntil:
+    # almost until operator
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+        self.name = "ALMOST_UNTIL"
+        
+    def eval(self, i: int) -> torch.tensor:
+        
+        globalmax = torch.zeros(batch_size)
+
+        global tensor_log
+            
+        sats_a = torch.stack([self.a.eval(j) for j in range(i,maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i,maxlength)], 1)
+        
+        ys = torch.zeros(sats_a.shape)
+        ys[:, -1] = sats_b[:, -1]
+        
+        for i in reversed(range(0, ys.shape[1]-1)):
+            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+                    
+        globalmax = ys[:, 0]
+        
+        orig_tensor_log = tensor_log.clone()
+        tensor_log,indexes = tensor_log.sort(dim=1)
+            
+        exclude = []
+
+        #we can exclude up to eta-1 events, so from i to min(i+eta-1,last)
+        for x in range(i, min(i+input.eta,maxlength)):
+            exclude.append(x)
+                
+            if(i+len(exclude)<maxlength):
+                
+                #here I need to store it with list(), cause generators are not rewund
+                keep = list(x for x in range(i, maxlength) if x not in exclude)
+            
+                sats_a = torch.stack([self.a.eval(j) for j in keep], 1)
+                sats_b = torch.stack([self.b.eval(j) for j in keep], 1)
+
+                ys = torch.zeros(sats_a.shape)
+                ys[:, -1] = sats_b[:, -1]
+                                        
+                for i in reversed(range(0, ys.shape[1]-1)):
+                    ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+                    
+                globalmax = torch.fmax(globalmax,ys[:,0])
+
+        #restoring the log
+        tensor_log = orig_tensor_log
+        return globalmax
+    
+        
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+
+
+#TODO BoundedAlmostUntil
+
+class Lasts:
+    # lasts operator
+    def __init__(self, exp, t:int):
+        self.exp = exp
+        self.t = t
+        self.name = "LASTS_"
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        from FLTLf.parser import LTLfParser
+        parser = LTLfParser()
+        
+        globalmax = torch.zeros(batch_size)
+
+        #from 0 to min(t,eta-1,last)
+        print(f"min is {min(self.t+1, i+input.eta, maxlength)}")
+        for j in range(0, min(self.t+1, i+input.eta, maxlength)):
+
+            #this is the only operator when we rewrite the formula
+            pyformula = parser("BG[" + str(self.t-j) + "](" + self.exp.print() + ")")  
+            print(f"evaluate {pyformula.print()} in instant {i}")   
+            globalmax = torch.fmax(globalmax, torch.mul( pyformula.eval(i), input.weights(j) ) )
+
+        return globalmax
+   
+    def print(self):
+        return self.name + str(self.t) + "(" + self.exp.print() + ")"
+
+
+#### Negation ####
+
+class Negate:
+    # negated formula
+    def __init__(self, exp):
+        self.exp = exp
+        self.name = "Negation"
 
         if isinstance(self.exp, And):
             neg_exprs = [Negate(e) for e in self.exp.exprs]
@@ -215,28 +611,66 @@ class Negate:
         elif isinstance(self.exp, Implication):
             self.neg = And([self.exp.a, Negate(self.exp.b)])
         elif isinstance(self.exp, BoolConst):
-            self.neg = BoolConst(1.0 - self.exp.x, self.exp.batch_size)
+            self.neg = BoolConst(1.0 - self.exp.x)
         elif isinstance(self.exp, Next):
-            self.neg = Next(Negate(self.exp.exp), self.exp.max_t, self.exp.batch_size)
+            self.neg = Next(Negate(self.exp.exp))
         elif isinstance(self.exp, WeakNext):
-            self.neg = WeakNext(Negate(self.exp.exp), self.exp.max_t, self.exp.batch_size)
+            self.neg = WeakNext(Negate(self.exp.exp))
         elif isinstance(self.exp, Eventually):
-            self.neg = Always(Negate(self.exp.exp), self.exp.max_t)
+            self.neg = Always(Negate(self.exp.exp))
         elif isinstance(self.exp, Always):
-            self.neg = Eventually(Negate(self.exp.exp), self.exp.max_t)
+            self.neg = Eventually(Negate(self.exp.exp))
         elif isinstance(self.exp, Predicate):
             self.neg = NegPredicate(self.exp)
         elif isinstance(self.exp, Until):
-            self.neg = Release(Negate(self.exp.a), Negate(self.exp.b), self.exp.max_t)
+            self.neg = Release(Negate(self.exp.a), Negate(self.exp.b))
         elif isinstance(self.exp, WeakUntil):
-            self.neg = StrongRelease(Negate(self.exp.a), Negate(self.exp.b), self.exp.max_t)
+            self.neg = StrongRelease(Negate(self.exp.a), Negate(self.exp.b))
         elif isinstance(self.exp, Release):
-            self.neg = Until(Negate(self.exp.a), Negate(self.exp.b), self.exp.max_t)
+            self.neg = Until(Negate(self.exp.a), Negate(self.exp.b))
         elif isinstance(self.exp, StrongRelease):
-            self.neg = WeakUntil(Negate(self.exp.a), Negate(self.exp.b), self.exp.max_t)
+            self.neg = WeakUntil(Negate(self.exp.a), Negate(self.exp.b))
         else:
             raise Exception(f"Negation not implemented for {self.exp.name}.") 
         
-    def eval(self, t: int) -> torch.tensor:
-        return self.neg.eval(t)  
+    def eval(self, i: int) -> torch.tensor:
+        return self.neg.eval(i)  
+    
+    def print(self):
+        return self.neg.print()
         
+
+
+
+#### Aux ####
+
+
+#as torch.min, but returns nan iff only nans are present 
+def choosemin(tensor):
+    tensor = torch.nan_to_num(tensor, nan=2) 
+    tmp = torch.min(tensor, 1).values
+    tmp[tmp == 2] = torch.nan
+    return tmp
+
+#same, for max
+def choosemax(tensor):
+    tensor = torch.nan_to_num(tensor, nan=-2)
+    tmp = torch.max(tensor, 1).values
+    tmp[tmp == -2] = torch.nan
+    return tmp
+
+
+def powerset(alist,maxlen):
+    s = list(alist)
+    return chain.from_iterable(combinations(s, r) for r in range(min(maxlen,len(s))+1))
+
+# generates a set of subtensors, for instants in {i,...,length}
+def estract_sub_logs(tensor_log: torch.Tensor, i:int, length:int):
+    sublogs = []
+    for indices in list(powerset(range(i,length))):
+        if len(indices) > 0:#TODO FORSE NO
+            tmp_sublog = tensor_log[:, indices, :]
+            sublogs.append(tmp_sublog)
+    return sublogs
+
+

@@ -1,17 +1,26 @@
 start: ltlf_formula
 
-?ltlf_formula:     ltlf_equivalence
-?ltlf_equivalence: ltlf_implication (EQUIVALENCE ltlf_implication)*
+?ltlf_formula:     ltlf_implication
 ?ltlf_implication: ltlf_or (IMPLY ltlf_or)*
 ?ltlf_or:          ltlf_and (OR ltlf_and)*
 ?ltlf_and:         ltlf_until (AND ltlf_until)*
-?ltlf_until:       ltlf_weak_until (UNTIL ltlf_weak_until)* 
-?ltlf_weak_until:  ltlf_strong_release (WEAK_UNTIL ltlf_strong_release)*
+?ltlf_until:       ltlf_b_until (UNTIL ltlf_b_until)* 
+?ltlf_b_until:       ltlf_weak_until (BUNTIL BLEFT ltlf_window BRIGHT ltlf_weak_until)* 
+?ltlf_weak_until:  ltlf_almost_until (WEAK_UNTIL ltlf_almost_until)*
+?ltlf_almost_until:  ltlf_b_almost_until (ALMOST_UNTIL ltlf_b_almost_until)*
+?ltlf_b_almost_until:  ltlf_strong_release (BALMOST_UNTIL BLEFT ltlf_window BRIGHT ltlf_strong_release)*
 ?ltlf_strong_release:  ltlf_release (STRONGRELEASE ltlf_release)*
 ?ltlf_release:     ltlf_unaryop (RELEASE ltlf_unaryop)*
 
 ?ltlf_unaryop:     ltlf_always
              |     ltlf_eventually
+             |     ltlf_b_eventually
+             |     ltlf_b_globally
+             |     ltlf_b_within
+             |     ltlf_b_almost_always
+             |     ltlf_soon
+             |     ltlf_almost_always
+             |     ltlf_lasts 
              |     ltlf_next
              |     ltlf_weak_next
              |     ltlf_not
@@ -19,34 +28,58 @@ start: ltlf_formula
 
 ?ltlf_always:      ALWAYS ltlf_unaryop
 ?ltlf_eventually:  EVENTUALLY ltlf_unaryop
+?ltlf_b_eventually:  BEVENTUALLY (BLEFT ltlf_window BRIGHT ltlf_unaryop)
+?ltlf_b_globally:  BGLOBALLY (BLEFT ltlf_window BRIGHT ltlf_unaryop)
+?ltlf_b_within:  WITHIN (BLEFT ltlf_window BRIGHT ltlf_unaryop)
+?ltlf_b_almost_always:  BALMOST_ALWAYS (BLEFT ltlf_window BRIGHT ltlf_unaryop)
+?ltlf_soon:        SOON ltlf_unaryop
+?ltlf_lasts:        LASTS (BLEFT ltlf_window BRIGHT ltlf_unaryop)
+?ltlf_almost_always:  ALMOST_ALWAYS ltlf_unaryop
 ?ltlf_next:        NEXT ltlf_unaryop
 ?ltlf_weak_next:   WEAK_NEXT ltlf_unaryop
 ?ltlf_not:         NOT ltlf_unaryop
 ?ltlf_wrapped:     ltlf_atom
              |     LSEPARATOR ltlf_formula RSEPARATOR
-?ltlf_atom:        ltlf_symbol
+?ltlf_atom:        ltlf_comparison
+          |        ltlf_predicate
           |        ltlf_true
           |        ltlf_false
-          |        ltlf_last
+?ltlf_comparison:  ltlf_wrapped ltlf_comparison_operator ltlf_wrapped 
+          |        ltlf_wrapped ltlf_comparison_operator ltlf_real
 
-ltlf_symbol: SYMBOL_NAME
+ltlf_window: /[0-9]{1,2}/ 
+ltlf_real: /\d+(\.\d{1,2})?/
+ltlf_predicate: PREDICATE
+ltlf_comparison_operator: OPERATOR
 ltlf_true: prop_true
 ltlf_false: prop_false
-ltlf_last: LAST
 
 // Operators must not be part of a word
-UNTIL.2: /U(?=[^a-z]|$)/
-WEAK_UNTIL.2: /W(?=[^a-z]|$)/
-RELEASE.2: /R(?=[^a-z]|$)/
-STRONGRELEASE.2: /M(?=[^a-z]|$)/
-ALWAYS.2: /G(?=[^a-z]|$)/
-EVENTUALLY.2: /F(?=[^a-z]|$)/
-NEXT.2: /X(?=[^a-z]|$)/
-WEAK_NEXT.2: /wX(?=[^a-z]|$)/
-LAST.2: /(?i:last)/
+UNTIL: /U(?=[^a-z]|$)/
+WEAK_UNTIL: /W(?=[^a-z]|$)/
+RELEASE: /R(?=[^a-z]|$)/
+STRONGRELEASE: /M(?=[^a-z]|$)/
+ALWAYS: /G(?=[^a-z]|$)/
+EVENTUALLY: /F(?=[^a-z]|$)/
+BEVENTUALLY : /BF(?=[^a-zA-Z]|$)/
+BGLOBALLY : /BG(?=[^a-zA-Z]|$)/         //BG used in core.py
+WITHIN : /IN(?=[^a-zA-Z]|$)/
+BUNTIL : /BU(?=[^a-z]|$)/
+SOON: /S(?=[^a-z]|$)/
+ALMOST_ALWAYS: /AG(?=[^a-z]|$)/
+ALMOST_UNTIL: /AU(?=[^a-z]|$)/
+BALMOST_ALWAYS: /BAG(?=[^a-z]|$)/   
+BALMOST_UNTIL: /BAU(?=[^a-z]|$)/
+LASTS: /L(?=[^a-z]|$)/
+NEXT: /X(?=[^a-z]|$)/
+WEAK_NEXT: /wX(?=[^a-z]|$)/
 
-// Symbols cannot contain uppercase letters, because these are reserved
-SYMBOL_NAME: /[a-z][a-z0-9_]*/
+BLEFT: "["
+BRIGHT: "]"
+
+// Predicates cannot contain uppercase letters, because these are reserved
+PREDICATE: /[a-z][a-z0-9_]*/
+OPERATOR: "==" | "<" | ">"
 
 %ignore /\s+/
 
@@ -55,7 +88,6 @@ SYMBOL_NAME: /[a-z][a-z0-9_]*/
 %import .pl.NOT -> NOT
 %import .pl.OR -> OR
 %import .pl.AND -> AND
-%import .pl.EQUIVALENCE -> EQUIVALENCE
 %import .pl.IMPLY -> IMPLY
 %import .pl.LSEPARATOR -> LSEPARATOR
 %import .pl.RSEPARATOR -> RSEPARATOR

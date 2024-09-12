@@ -1,160 +1,107 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Implementation of the FLTLf parser."""
-
-from lark import Lark, Transformer
-#import ltlf2dfa
-#from ltlf2dfa.helpers import ParsingError
-#from ltlf2dfa.parser.pl import PLTransformer
+from lark import Transformer
+from lark import Lark
+from FLTLf import core
 import FLTLf
-from FLTLf import core as fltlf
 import os
 
 
 ParsingError = ValueError("Parsing error.")
 
 class LTLfTransformer(Transformer):
-    """LTLf Transformer."""
-
-    def __init__(self,predicates, tensor_log, max_t, batch_size):
-        """Initialize."""
+    
+    def __init__(self):
         super().__init__()
-        self.predicates = predicates
-        self.tensor_log = tensor_log
-        self.max_t = max_t
-        self.batch_size = batch_size
 
     def start(self, args):
-        """Entry point."""
         assert len(args) == 1
         return args[0]
 
     def ltlf_formula(self, args):
-        """Parse FLTLf formula."""
         assert len(args) == 1
         return args[0]
 
     def ltlf_implication(self, args):
-        """Parse FLTLf Implication."""
-        
-        if len(args) == 1:
-            return args[0] 
-        elif (len(args) - 1) % 2 == 0:  
-            subformulas = args[::2]
-            return fltlf.Implication(subformulas[0],subformulas[1]) 
-        else:
-            raise ParsingError
+        subformulas = args[::2]
+        return core.Implication(subformulas[0],subformulas[1]) 
 
+    def ltlf_comparison(self, args):
+        return core.ComparisonTerm(args[0],args[2],args[1])
+    
     def ltlf_or(self, args):
-        """Parse FLTLf Or."""
-        if len(args) == 1: 
-            return args[0]
-        elif (len(args) - 1) % 2 == 0:
-            subformulas = args[::2]
-            return fltlf.Or(subformulas)
-        else:
-            raise ParsingError
-
+        subformulas = args[::2]
+        return core.Or(subformulas)
+        
     def ltlf_and(self, args):
-        """Parse FLTLf And."""
-        if len(args) == 1:
-            return args[0]
-        elif (len(args) - 1) % 2 == 0:
-            subformulas = args[::2]
-            return fltlf.And(subformulas) 
-        else:
-            raise ParsingError
+        subformulas = args[::2]
+        return core.And(subformulas) 
 
     def ltlf_until(self, args):
-        """Parse FLTLf Until."""
-        if len(args) == 1:
-            return args[0]
-        elif (len(args) - 1) % 2 == 0:
-            subformulas = args[::2] 
-            return fltlf.Until(subformulas[0],subformulas[1], self.max_t) 
-        else:
-            raise ParsingError
+        return core.Until(args[0],args[2]) 
         
     def ltlf_weak_until(self, args):
-        """Parse FLTLf Weak Until."""
-        if len(args) == 1:
-            return args[0]
-        elif (len(args) - 1) % 2 == 0:
-            subformulas = args[::2]
-            return fltlf.WeakUntil(subformulas[0],subformulas[1], self.max_t) 
-        else:
-            raise ParsingError
+        return core.WeakUntil(args[0],args[2]) 
 
     def ltlf_release(self, args):
-        """Parse FLTLf Release."""
-        if len(args) == 1:
-            return args[0]
-        elif (len(args) - 1) % 2 == 0:
-            subformulas = args[::2]
-            return fltlf.Release(subformulas[0],subformulas[1], self.max_t) 
-        else:
-            raise ParsingError
+        return core.Release(args[0],args[2]) 
 
     def ltlf_strong_release(self, args):
-        """Parse FLTLf StrongRelease."""
-        if len(args) == 1:
-            return args[0]
-        elif (len(args) - 1) % 2 == 0:
-            subformulas = args[::2]
-            return fltlf.StrongRelease(subformulas[0],subformulas[1], self.max_t) 
-        else:
-            raise ParsingError
+        return core.StrongRelease(args[0],args[2]) 
 
     def ltlf_always(self, args):
-        """Parse FLTLf Always."""       
-        if len(args) == 1:
-            return args[0] 
-        else:
-            f = args[-1] 
-            for _ in args[:-1]:
-                f = fltlf.Always(f, self.max_t)
-            return f
+        return core.Always(args[1])
 
     def ltlf_eventually(self, args):
-        """Parse FLTLf Eventually."""
-        if len(args) == 1:
-            return args[0]
-        else:
-            f = args[-1]
-            for _ in args[:-1]:
-                f = fltlf.Eventually(f, self.max_t) 
-            return f
+        return core.Eventually(args[1])
 
     def ltlf_next(self, args):
-        """Parse FLTLf Next."""
-        if len(args) == 1:
-            return args[0]
-        else:
-            f = args[-1]
-            for _ in args[:-1]:
-                f = fltlf.Next(f, self.max_t, self.batch_size) 
-            return f
+        return core.Next(args[1]) 
 
     def ltlf_weak_next(self, args):
-        """Parse FLTLf Weak Next."""
-        if len(args) == 1:
-            return args[0]
-        else:
-            f = args[-1]
-            for _ in args[:-1]:
-                f = fltlf.WeakNext(f, self.max_t, self.batch_size)
-            return f
-
-    def ltlf_not(self, args):  
-        """Parse FLTLf Not."""
-        f = args[-1]
-        for _ in args[:-1]:
-            f = fltlf.Negate(f) 
-        return f
+        return core.WeakNext(args[1])
         
+    def ltlf_soon(self, args):
+        return core.Soon(args[1])
+    
+    def ltlf_lasts(self, args):
+        return core.Lasts(args[4], args[2])
+    
+    def ltlf_b_eventually(self, args):
+        return core.BoundedEventually(args[4], args[2])
 
+    def ltlf_b_globally(self, args):
+        return core.BoundedGlobally(args[4], args[2])
+
+    def ltlf_b_within(self, args):
+        return core.Within(args[4], args[2])
+
+    def ltlf_b_until(self, args):
+        return core.BoundedUntil(args[0],args[2],args[5])
+
+    def ltlf_almost_always(self, args):
+        return core.AlmostAlways(args[1])
+
+    def ltlf_b_almost_always(self, args):
+        return core.BoundedAlmostAlways(args[4],args[2])
+    
+    def ltlf_almost_until(self, args):
+        return core.AlmostUntil(args[0],args[2]) 
+    
+    def ltlf_b_almost_until(self, args):
+        return core.BoundedUntil(args[0],args[6],args[4])
+    
+    def ltlf_not(self, args):  
+        return core.Negate(args[1]) 
+    
+    def ltlf_window(self, args):
+        return int(args[0])
+    
+    def ltlf_real(self, args):
+        return float(args[0])
+    
+    def ltlf_comparison_operator(self, args):
+        return args[0]
+        
     def ltlf_wrapped(self, args):
-        """Parse FLTLf wrapped formula."""
         if len(args) == 1:
             return args[0]
         elif len(args) == 3:
@@ -164,35 +111,27 @@ class LTLfTransformer(Transformer):
             raise ParsingError
 
     def ltlf_atom(self, args): 
-        """Parse FLTLf Atom."""
-        assert len(args) == 1
         return args[0]
+
+    def ltlf_predicate(self, args):
+        return core.Predicate(args[0])
     
     def ltlf_true(self, args):  
-        """Parse FLTLf True."""
-        return fltlf.BoolConst(1, self.batch_size) 
+        return core.BoolConst(1.0) 
 
     def ltlf_false(self, args):  
-        """Parse FLTLf False."""
-        return fltlf.BoolConst(0, self.batch_size) 
+        return core.BoolConst(0.0) 
 
-    def ltlf_symbol(self, args):
-        """Parse FLTLf Symbol."""
-        assert len(args) == 1
-        symbol = str(args[0])
-        return fltlf.Predicate(self.tensor_log[:, :, self.predicates.index(symbol)], symbol)
 
 class LTLfParser:
-    """FLTLf Parser class."""
-
-    def __init__(self,predicates,tensor_log,max_t,batch_size_var):
-        """Initialize."""
-        self._transformer = LTLfTransformer(predicates, tensor_log, max_t, batch_size_var)
+    
+    def __init__(self):
+        
+        self._transformer = LTLfTransformer()
         ltl_syntax_filepath = os.path.join(FLTLf.__path__[0], "LTLf.lark")
         self._parser = Lark(open(ltl_syntax_filepath), parser="lalr")
 
     def __call__(self, text):
-        """Call."""
         tree = self._parser.parse(text)
         formula = self._transformer.transform(tree)
         return formula

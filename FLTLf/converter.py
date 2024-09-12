@@ -1,39 +1,52 @@
 import torch
 import torch.nn.functional as F
 from typing import List
-import pdb
 
+import input
 
 class Converter:
-    """A class for converting a fuzzy log from Python lists to a three-dimensional torch Tensor"""
-    def __init__(self, predicate_names: List[str], traces: List):
+    
+    def __init__(self, predicate_names: List[str], logtraces: List):
         self.predicate_names = predicate_names
-        self.traces = traces
-        self.max_t: int = 0 # Maximum length across traces
+        self.logtraces = logtraces
+        self.maxlength: int = 0 # Maximum length across traces
         self.batch_size : int = 0 # Number of traces
         
-    def OLDlog2tensor(self, verbose: bool=False) -> torch.Tensor:
-        self.max_t = max(len(t[0]) for t in self.traces)
-        padded_tensors = [self.OLDaddPadding(t) for t in self.traces] # The log
-        tensor_log = torch.stack(padded_tensors, dim=0)
-        if verbose:
-            print(tensor_log)
-        self.batch_size = tensor_log.shape[0]
-        return tensor_log
-    
-    def OLDaddPadding(self, data: List) -> torch.Tensor:
-        padded_data = [F.pad(torch.tensor(tensor).float(), (0, self.max_t - len(tensor)), mode="constant", value=torch.nan) for tensor in data]
-        return torch.stack(padded_data, dim=1)
+    def log2tensor(self, stringFormula: str, verbose: bool=False) -> torch.Tensor:
         
-    def log2tensor(self, verbose: bool=False) -> torch.Tensor:
-        self.max_t = max(len(t) for t in self.traces)
-        padded_tensors = [self.addPadding(t) for t in self.traces]
+        self.maxlength = max(len(t) for t in self.logtraces)
+        padded_tensors = [self.addPadding(t) for t in self.logtraces]
         tensor_log = torch.stack(padded_tensors, dim=0)
+
         if verbose:
             print(tensor_log)
+
+        
+        #print(tensor_log[:,:,[1,2]])
+
+        used = []
+        usedindexes = []
+        for p in self.predicate_names:
+            index = self.predicate_names.index(p)
+            if p in stringFormula:
+                used += [p]
+                usedindexes += [index]
+            elif verbose:
+                print(f"slicing out predicate {p} at index {index}") 
+
+        if verbose:
+            print(f"remaining indexes: {usedindexes}")
+
+        tensor_log = tensor_log[:,:,usedindexes]
+        input.predicate_names = used
         self.batch_size = tensor_log.shape[0]
+
+        if verbose:
+            print("new tensor log: ")
+            print(tensor_log)
+
         return tensor_log
         
     def addPadding(self, data: List) -> torch.Tensor:
-        padded_data = F.pad(torch.tensor(data, dtype=torch.float), (0, 0, 0, self.max_t - len(data)), mode="constant", value=torch.nan)
+        padded_data = F.pad(torch.tensor(data, dtype=torch.float), (0, 0, 0, self.maxlength - len(data)), mode="constant", value=torch.nan)
         return padded_data
