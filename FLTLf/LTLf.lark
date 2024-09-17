@@ -79,7 +79,7 @@ BRIGHT: "]"
 
 // Predicates cannot contain uppercase letters, because these are reserved
 PREDICATE: /[a-z][a-z0-9_]*/
-OPERATOR: "==" | "<" | ">"
+OPERATOR: "==" | "<" | ">" | "<=" | ">=" | "!="  
 
 %ignore /\s+/
 

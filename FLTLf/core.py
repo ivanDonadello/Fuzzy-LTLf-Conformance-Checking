@@ -36,20 +36,26 @@ class ComparisonTerm:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
 
         sat_a = self.a.eval(i)
-        
+
         if(isinstance(self.b, float)):
             sat_b = self.b
         else:
             sat_b = self.b.eval(i)
 
+        #no need to check: OR isnan(sat_b): same as isnan(sat_a)
         match self.op:
             case "<":
-                return (sat_a < sat_b)
+                return torch.where(torch.isnan(sat_a), torch.nan, torch.lt(sat_a,sat_b))
+            case "<=":
+                return torch.where(torch.isnan(sat_a), torch.nan, torch.le(sat_a,sat_b))
             case ">":
-                return (sat_a > sat_b)
+                return torch.where(torch.isnan(sat_a), torch.nan, torch.gt(sat_a,sat_b))
+            case ">=":
+                return torch.where(torch.isnan(sat_a), torch.nan, torch.ge(sat_a,sat_b))
             case "==":
-                return (sat_a == sat_b)
-            
+                return torch.where(torch.isnan(sat_a), torch.nan, torch.eq(sat_a,sat_b))
+            case "!=":
+                return torch.where(torch.isnan(sat_a), torch.nan, torch.ne(sat_a,sat_b))
 
     def print(self):
         if(isinstance(self.b, float)):
@@ -643,7 +649,6 @@ class Negate:
 
 
 #### Aux ####
-
 
 #as torch.min, but returns nan iff only nans are present 
 def choosemin(tensor):
