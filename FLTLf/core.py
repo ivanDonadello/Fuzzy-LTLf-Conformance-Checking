@@ -1,5 +1,6 @@
 import torch
 import input
+from torch.masked import masked_tensor
 from itertools import chain, combinations
 
 
@@ -190,6 +191,8 @@ class Always:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
 
         sats = torch.stack([self.exp.eval(j) for j in range(i, maxlength)], 1)
+        #masked = masked_tensor(sats, ~torch.isnan(sats))
+        #return torch.amin(masked, 1)
         return choosemin(sats)
         
     def print(self):
