@@ -9,8 +9,6 @@ tensor_log: torch.Tensor #TODO slice the tensor with
 batch_size: int
 maxlength: int
 
-
-
 ##### propositional #####
 
 class Predicate:
@@ -191,8 +189,6 @@ class Always:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
 
         sats = torch.stack([self.exp.eval(j) for j in range(i, maxlength)], 1)
-        #masked = masked_tensor(sats, ~torch.isnan(sats))
-        #return torch.amin(masked, 1)
         return choosemin(sats)
         
     def print(self):
@@ -650,11 +646,15 @@ class Negate:
         
 
 
-
 #### Aux ####
 
 #as torch.min, but returns nan iff only nans are present 
 def choosemin(tensor):
+
+    #only works for simple formulas. to investigate
+    #masked = masked_tensor(tensor, ~torch.isnan(tensor))
+    #return torch.amin(masked, 1)
+
     tensor = torch.nan_to_num(tensor, nan=2) 
     tmp = torch.min(tensor, 1).values
     tmp[tmp == 2] = torch.nan

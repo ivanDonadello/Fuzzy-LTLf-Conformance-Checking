@@ -58,4 +58,4 @@ formula = "F(((G(cobot_holds > 0.1)) & F cobot_holds) > 0.6)"
 i=0
 
 
-formula = "G(cobot_holds)" 
+formula = "F(((!(cobot_holds)U(human_glues)) | G((((!(qc)U(cobot_holds)) | G(!(human_holds)))) != (G(F(qc) -> !(cobot_holds))))) == (F(human_glues) -> F(qc)) )" 
