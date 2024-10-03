@@ -30,6 +30,7 @@ class ComparisonTerm:
         self.a = a
         self.b = b
         self.op = op
+        self.name = "comparison"
 
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -41,7 +42,7 @@ class ComparisonTerm:
         else:
             sat_b = self.b.eval(i)
 
-        #no need to check: OR isnan(sat_b): same as isnan(sat_a)
+        #no need to check: OR isnan(sat_b): iff isnan(sat_a)
         match self.op:
             case "<":
                 return torch.where(torch.isnan(sat_a), torch.nan, torch.lt(sat_a,sat_b))
@@ -58,9 +59,9 @@ class ComparisonTerm:
 
     def print(self):
         if(isinstance(self.b, float)):
-            return self.a.print() + " " + self.op + " " + str(self.b)
+            return "(" + self.a.print() + " " + self.op + " " + str(self.b) + ")"
         else:
-            return self.a.print() + " " + self.op + " " + self.b.print()
+            return "(" + self.a.print() + " " + self.op + " " + self.b.print() + ")"
 
 class NegPredicate:
     # negated atomic predicate
@@ -434,7 +435,7 @@ class AlmostAlways:
             
             if(len(exclude)<maxlength):
 
-                #incrmeentally, we exclude instants at the beginning of the sorted sequence
+                #incrementally, we exclude instants at the beginning of the sorted sequence
                 keep = (x for x in range(i, maxlength) if x not in exclude)
                 sats = torch.stack([  self.exp.eval(j) for j in keep], 1)
 
@@ -585,12 +586,12 @@ class Lasts:
         globalmax = torch.zeros(batch_size)
 
         #from 0 to min(t,eta-1,last)
-        print(f"min is {min(self.t+1, i+input.eta, maxlength)}")
         for j in range(0, min(self.t+1, i+input.eta, maxlength)):
 
-            #this is the only operator when we rewrite the formula
+            #this is the only operator when we rewrite the formula (apart from ->)
+            #note: we saw the parsing takes time
             pyformula = parser("BG[" + str(self.t-j) + "](" + self.exp.print() + ")")  
-            print(f"evaluate {pyformula.print()} in instant {i}")   
+            #print(f"evaluate {pyformula.print()} in instant {i}")   
             globalmax = torch.fmax(globalmax, torch.mul( pyformula.eval(i), input.weights(j) ) )
 
         return globalmax
@@ -602,7 +603,7 @@ class Lasts:
 #### Negation ####
 
 class Negate:
-    # negated formula
+    # negated formula, limited to the atomic formulae (excluding )
     def __init__(self, exp):
         self.exp = exp
         self.name = "Negation"

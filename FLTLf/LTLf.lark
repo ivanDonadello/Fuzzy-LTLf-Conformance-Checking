@@ -40,8 +40,8 @@ start: ltlf_formula
 ?ltlf_not:         NOT ltlf_unaryop
 ?ltlf_wrapped:     ltlf_atom
              |     LSEPARATOR ltlf_formula RSEPARATOR
-?ltlf_atom:        ltlf_comparison
-          |        ltlf_predicate
+?ltlf_atom:        ltlf_predicate
+          |        ltlf_comparison
           |        ltlf_true
           |        ltlf_false
 ?ltlf_comparison:  ltlf_wrapped ltlf_comparison_operator ltlf_wrapped 
@@ -72,7 +72,7 @@ BALMOST_ALWAYS: /BAG/
 BALMOST_UNTIL: /BAU/
 LASTS: /L/
 NEXT: /X/
-WEAK_NEXT: /wX/
+WEAK_NEXT: /WX/
 
 BLEFT: "["
 BRIGHT: "]"
