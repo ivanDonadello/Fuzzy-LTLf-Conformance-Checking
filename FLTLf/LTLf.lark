@@ -55,24 +55,24 @@ ltlf_true: prop_true
 ltlf_false: prop_false
 
 // Operators must not be part of a word
-UNTIL: /U(?=[^a-z]|$)/
-WEAK_UNTIL: /W(?=[^a-z]|$)/
-RELEASE: /R(?=[^a-z]|$)/
-STRONGRELEASE: /M(?=[^a-z]|$)/
-ALWAYS: /G(?=[^a-z]|$)/
-EVENTUALLY: /F(?=[^a-z]|$)/
-BEVENTUALLY : /BF(?=[^a-zA-Z]|$)/
-BGLOBALLY : /BG(?=[^a-zA-Z]|$)/         //BG used in core.py
-WITHIN : /IN(?=[^a-zA-Z]|$)/
-BUNTIL : /BU(?=[^a-z]|$)/
-SOON: /S(?=[^a-z]|$)/
-ALMOST_ALWAYS: /AG(?=[^a-z]|$)/
-ALMOST_UNTIL: /AU(?=[^a-z]|$)/
-BALMOST_ALWAYS: /BAG(?=[^a-z]|$)/   
-BALMOST_UNTIL: /BAU(?=[^a-z]|$)/
-LASTS: /L(?=[^a-z]|$)/
-NEXT: /X(?=[^a-z]|$)/
-WEAK_NEXT: /wX(?=[^a-z]|$)/
+UNTIL: /U/
+WEAK_UNTIL: /W/
+RELEASE: /R/
+STRONGRELEASE: /M/
+ALWAYS: /G/
+EVENTUALLY: /F/
+BEVENTUALLY : /BF/
+BGLOBALLY : /BG/         //BG used in core.py
+WITHIN : /IN/
+BUNTIL : /BU/
+SOON: /S/
+ALMOST_ALWAYS: /AG/
+ALMOST_UNTIL: /AU/
+BALMOST_ALWAYS: /BAG/   
+BALMOST_UNTIL: /BAU/
+LASTS: /L/
+NEXT: /X/
+WEAK_NEXT: /wX/
 
 BLEFT: "["
 BRIGHT: "]"

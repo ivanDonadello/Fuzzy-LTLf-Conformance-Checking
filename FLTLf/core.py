@@ -667,7 +667,6 @@ def choosemax(tensor):
     tmp[tmp == -2] = torch.nan
     return tmp
 
-
 def powerset(alist,maxlen):
     s = list(alist)
     return chain.from_iterable(combinations(s, r) for r in range(min(maxlen,len(s))+1))
