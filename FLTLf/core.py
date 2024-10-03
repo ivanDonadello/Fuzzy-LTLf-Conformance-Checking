@@ -4,10 +4,6 @@ from torch.masked import masked_tensor
 from itertools import chain, combinations
 
 
-# tensor_log.shape = (num_traces, num_events, num_predicates)
-tensor_log: torch.Tensor #TODO slice the tensor with 
-batch_size: int
-maxlength: int
 
 ##### propositional #####
 
