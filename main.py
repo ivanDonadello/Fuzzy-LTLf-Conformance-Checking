@@ -11,6 +11,8 @@ converter: Converter = Converter(input.predicate_names,input.traces)
 core.tensor_log = converter.log2tensor(input.formula,verbose=False)
 # number of log traces
 core.batch_size = converter.batch_size
+# length of longest trace
+core.maxlength = converter.maxlength
 # debug (see main.py)
 core.debug = input.debug
 
