@@ -3,6 +3,7 @@ from FLTLf.converter import Converter
 from FLTLf import core
 import input
 import traceback
+import torch
 
 # preliminary log manipulation and padding 
 converter: Converter = Converter(input.predicate_names,input.traces)
@@ -10,8 +11,8 @@ converter: Converter = Converter(input.predicate_names,input.traces)
 core.tensor_log = converter.log2tensor(input.formula,verbose=False)
 # number of log traces
 core.batch_size = converter.batch_size
-# length of longest trace
-core.maxlength = converter.maxlength
+# debug (see main.py)
+core.debug = input.debug
 
 # Parsing into a formula
 parser = LTLfParser()
@@ -22,10 +23,30 @@ try:
     # Instant i
     i = input.i
 
-    print("")
+    #print("")
+    #print(f"Log max legnth is {converter.maxlength}")
     print(f"Evaluation of {pyformula.print()} at instant {i} :")
-    print(pyformula.eval(i))
-    print("")
+    #print(pyformula.eval(i))
+    #print("")
+
+    #print("0")
+    #print(core.tensor_log)
+    
+    visitor = core.Visitor() 
+    visitor.visit(pyformula, i)
+
+    print("Result:")
+    
+    #as big as the original tensor
+    #print(visitor.data)
+    #a 1-dimension tensor, for each trace
+    print(visitor.result)
+    #the old evaluation
+    
+    if(input.debug):
+        print(f"{pyformula.eval(i)} - old code")
+    
+
     
 except Exception as e:
     print(traceback.format_exc())
