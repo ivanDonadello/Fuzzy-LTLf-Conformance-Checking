@@ -74,7 +74,7 @@ class ComparisonTerm(Node):
             if(keepdim):
                 sat_b = torch.full((batch_size, maxlength), self.b)
             else: 
-                sat_b = torch.full((1,batch_size), self.b)[0]
+                sat_b = torch.full((1,batch_size), self.b)
         else:
             sat_b = self.b.visit(v, keepdim)
 
