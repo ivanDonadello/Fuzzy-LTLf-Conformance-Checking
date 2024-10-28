@@ -74,9 +74,13 @@ class ComparisonTerm(Node):
             if(keepdim):
                 sat_b = torch.full((batch_size, maxlength), self.b)
             else: 
-                sat_b = torch.full((batch_size, 1), self.b)
+                sat_b = torch.full((1,batch_size), self.b)[0]
         else:
             sat_b = self.b.visit(v, keepdim)
+
+        #print(batch_size)
+        #print(f"1--{sat_a}")
+        #print(f"2--{sat_b}")
 
         # here, v.data is overwritten
         match self.op:
@@ -93,8 +97,8 @@ class ComparisonTerm(Node):
             case "!=":
                 v.data =  torch.where(torch.isnan(sat_a) | torch.isnan(sat_b), torch.nan, torch.ne(sat_a,sat_b))
 
-        if(not(keepdim)):
-            v.data = v.data[0]
+        #if(not(keepdim)):
+        #    v.data = v.data[0]
         
         return v.retResult(self)
 
