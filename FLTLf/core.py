@@ -229,7 +229,7 @@ class Or(Node):
 
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
-        self.exprs[0].visit(v, keepdim)
+        self.exprs[0].visit(v, i, keepdim)
 
         for child in self.exprs[1:]:
             v.data = torch.maximum(v.data, child.visit(v, i, keepdim))
