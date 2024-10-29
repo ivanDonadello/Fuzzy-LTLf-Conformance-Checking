@@ -329,9 +329,6 @@ class WeakNext(Node):
             # replace nan with 1. doublecheck TODO
             v.data[ v.data.isnan() ] = 1 
 
-        if(not(keepdim)):
-            v.data = v.data[:, 0]
-
         return v.retResult(self)
         
     def eval(self, i: int) -> torch.tensor:
