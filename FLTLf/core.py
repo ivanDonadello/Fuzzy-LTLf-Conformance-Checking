@@ -1,5 +1,6 @@
 import torch
 import input
+import torch.nn.functional as F
 from torch.masked import masked_tensor
 from itertools import chain, combinations
 
@@ -22,8 +23,8 @@ class Visitor:
     def visit(self, node: Node, i:int):
         
         self.i = i
-        node.visit(self, False)
-        self.result = self.data
+        node.visit(self, i, False)
+        #self.result = self.data
 
     # prints a debug output if debug is active, then returns the evaluation
     def retResult(self, node: Node):
@@ -38,14 +39,14 @@ class Predicate(Node):
     def __init__(self, predicate_name: str):
         self.predicate_name = predicate_name
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         # set explicitly v.data
         # needs to clone the tensor for each leaf of the tree. 
         # can we do better (graph vs tree, etc)? TODO
         if(keepdim):
-            v.data = torch.clone(tensor_log[:, :, input.predicate_names.index(self.predicate_name)])
+            v.data = F.pad(tensor_log[:, i:, input.predicate_names.index(self.predicate_name)], (0, i), mode="constant", value=torch.nan)
         else:
-            v.data = torch.clone(tensor_log[:, v.i, input.predicate_names.index(self.predicate_name)])
+            v.data = (tensor_log[:, i, input.predicate_names.index(self.predicate_name)])
         
         return v.retResult(self)
         
@@ -65,18 +66,18 @@ class ComparisonTerm(Node):
         self.op = op
         self.name = "comparison"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
         # this creates a new tensor. can we avoid this? TODO
-        sat_a = self.a.visit(v, keepdim)
+        sat_a = self.a.visit(v, i, keepdim)
 
         if(isinstance(self.b, float)):
             if(keepdim):
-                sat_b = torch.full((batch_size, maxlength), self.b)
+                sat_b = torch.full(sat_a.shape, self.b)
             else: 
                 sat_b = torch.full((1,batch_size), self.b)
         else:
-            sat_b = self.b.visit(v, keepdim)
+            sat_b = self.b.visit(v, i, keepdim)
 
         #print(batch_size)
         #print(f"1--{sat_a}")
@@ -97,8 +98,8 @@ class ComparisonTerm(Node):
             case "!=":
                 v.data =  torch.where(torch.isnan(sat_a) | torch.isnan(sat_b), torch.nan, torch.ne(sat_a,sat_b))
 
-        #if(not(keepdim)):
-        #    v.data = v.data[0]
+        if(not(keepdim)):
+            v.data = v.data[0]
         
         return v.retResult(self)
 
@@ -141,9 +142,9 @@ class NegPredicate(Node):
         self.name = "NegPredicate"
         self.children = []
  
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         # here, v.data is overwritten
-        v.data = torch.sub(1, self.exp.visit(v, keepdim))
+        v.data = torch.sub(1, self.exp.visit(v, i, keepdim))
 
         if(not(keepdim)):
             v.data = v.data[0]
@@ -163,7 +164,7 @@ class BoolConst(Node):
         self.name = "Boolean"
         self.children = []
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
         # here, v.data is overwritten
         # as any type of leaf, this uses a new tensor
@@ -197,13 +198,17 @@ class And(Node):
         self.exprs = exprs
         self.name = "AND"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
-        self.exprs[0].visit(v, keepdim)
+        #this sets v.data
+        self.exprs[0].visit(v, i, keepdim)
 
-        for child in self.exprs[1:]:
-            v.data = torch.minimum(v.data, child.visit(v, keepdim))
-
+        #print(f"--{v.data}")
+        
+        for child in self.exprs[1:]:  
+            v.data = torch.minimum(v.data, child.visit(v,i, keepdim))
+        #print(f"--{v.data}")
+        
         return v.retResult(self)
 
     def eval(self, i: int) -> torch.tensor:
@@ -222,12 +227,12 @@ class Or(Node):
         self.exprs = exprs
         self.name = "OR"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
         self.exprs[0].visit(v, keepdim)
 
         for child in self.exprs[1:]:
-            v.data = torch.maximum(v.data, child.visit(v, keepdim))
+            v.data = torch.maximum(v.data, child.visit(v, i, keepdim))
 
         #if(not(keepdim)):
         #    v.data = v.data[0]
@@ -254,8 +259,8 @@ class Implication(Node):
         self.imp = Or([Negate(a), b])
         self.name = "IMPLIES"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
-        self.imp.visit(v, keepdim)
+    def visit(self, v: Visitor, i, keepdim) -> torch.tensor:
+        self.imp.visit(v, i, keepdim)
         return v.data; 
 
     def eval(self, i: int) -> torch.tensor:
@@ -274,25 +279,19 @@ class Next(Node):
         self.exp = exp
         self.name = "NEXT"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
-        
-        # this should not require true!! TODO
-        # this is the same problem in all temporal operators:
-        # they all set True so the entire trace is evaluated and not
-        # just the suffix or, as in this case, the next instant only
-        # but if we don't set true, if the subformula does not require keepdim
-        # then it returns a single value, and this shift computes 0. TODO
-        v.data = self.exp.visit(v, True) 
-
-        # shift left
-        v.data = torch.roll(v.data, -1) 
-        # replace with nan the last elements
-        v.data[:,v.data.shape[1]-1] = torch.nan  
-        # replace nan with 0. doublecheck TODO
-        v.data[ v.data.isnan() ] = 0 
-
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
+               
         if(not(keepdim)):
-            v.data = v.data[:, 0]
+            v.data = self.exp.visit(v, i+1, keepdim)
+        else:
+            v.data = self.exp.visit(v, i, keepdim)
+            # shift left
+            v.data = torch.roll(v.data, -1) 
+            print(v.data)
+            # replace with nan the last elements
+            v.data[:,v.data.shape[1]-1] = torch.nan  
+            # replace nan with 0. doublecheck TODO
+            v.data[ v.data.isnan() ] = 0 
 
         return v.retResult(self)
   
@@ -316,17 +315,19 @@ class WeakNext(Node):
         self.exp = exp
         self.name = "WEAK_NEXT"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
 
-        # see NEXT TODO
-        v.data = self.exp.visit(v, True) 
-
-        # see NEXT TODO
-        v.data = torch.roll(v.data, -1) 
-        v.data[:,v.data.shape[1]-1] = torch.nan  
-
-        # replaces with 1, not 0
-        v.data[ v.data.isnan() ] = 1 
+        if(not(keepdim)):
+            v.data = self.exp.visit(v, i+1, keepdim)
+        else:
+            v.data = self.exp.visit(v, i, keepdim)
+            # shift left
+            v.data = torch.roll(v.data, -1) 
+            print(v.data)
+            # replace with nan the last elements
+            v.data[:,v.data.shape[1]-1] = torch.nan  
+            # replace nan with 1. doublecheck TODO
+            v.data[ v.data.isnan() ] = 1 
 
         if(not(keepdim)):
             v.data = v.data[:, 0]
@@ -352,17 +353,16 @@ class Always(Node):
         self.exp = exp
         self.name = "ALWAYS"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor,i:int, keepdim) -> torch.tensor:
 
-        v.data = self.exp.visit(v, True)  #forces True      
-        #v.data = torch.zeros(data.shape)
-        #v.data[:, -1] = data[:, -1]
-                               
-        for i in reversed(range(0, v.data.shape[1]-1)):
-            v.data[:, i] = torch.fmin(v.data[:, i], v.data[:, i + 1])
-        
+        v.data = self.exp.visit(v, i, True)  #forces True      
+
+        #v.data = choosemin(v.data) 
+        for j in reversed(range(i-1, maxlength-i-1)):#range up to -1, e qui poi faccio+1
+            v.data[:, j] = torch.fmin(v.data[:, j], v.data[:, j + 1])
+
         if(not(keepdim)):
-            v.data = v.data[:, v.i]
+            v.data = v.data[:, 0]
 
         return v.retResult(self)
        
@@ -383,16 +383,15 @@ class Eventually(Node):
         self.exp = exp
         self.name = "EVENTUALLY"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
-        v.data = self.exp.visit(v, True)        
-        #v.data = torch.zeros(data.shape)
-        #v.data[:, -1] = data[:, -1]
-                               
-        for i in reversed(range(0, v.data.shape[1]-1)):
-            v.data[:, i] = torch.fmax(v.data[:, i], v.data[:, i + 1])
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
+        v.data = self.exp.visit(v, i, True)        
+        
+        #v.data = choosemax(v.data) 
+        for j in reversed(range(i-1, maxlength-i-1)):#range up to -1, e qui poi faccio+1
+            v.data[:, j] = torch.fmax(v.data[:, j], v.data[:, j + 1])
 
         if(not(keepdim)):
-            v.data = v.data[:, v.i]
+            v.data = v.data[:, 0]
 
         return v.retResult(self)
 
@@ -412,10 +411,10 @@ class Release(Node):
         self.b = b
         self.name = "RELEASE"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
-        sats_a = self.a.visit(v, True)
-        sats_b = self.b.visit(v, True)
+        sats_a = self.a.visit(v, i, True)
+        sats_b = self.b.visit(v, i, True)
 
         v.data = torch.zeros(sats_a.shape)
 
@@ -452,10 +451,10 @@ class StrongRelease(Node):
         self.b = b
         self.name = "STRONG_RELEASE"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor,i:int,  keepdim) -> torch.tensor:
         
-        sats_a = self.a.visit(v, True)
-        sats_b = self.b.visit(v, True)
+        sats_a = self.a.visit(v, i, True)
+        sats_b = self.b.visit(v, i, True)
 
         v.data = torch.zeros(sats_a.shape)
         v.data[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  
@@ -491,10 +490,10 @@ class WeakUntil(Node):
         self.b = b
         self.name = "WEAK_UNTIL"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
-        sats_a = self.a.visit(v, True)
-        sats_b = self.b.visit(v, True)
+        sats_a = self.a.visit(v, i, True)
+        sats_b = self.b.visit(v, i, True)
 
         v.data = torch.zeros(sats_a.shape)
         v.data[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
@@ -531,11 +530,11 @@ class Until(Node):
         self.b = b
         self.name = "UNTIL"
 
-    def visit(self, v: Visitor, keepdim) -> torch.tensor:
+    def visit(self, v: Visitor,i:int,  keepdim) -> torch.tensor:
         
         #this duplicates the tensor. can we do better? TODO
-        sats_a = self.a.visit(v, True)
-        sats_b = self.b.visit(v, True)
+        sats_a = self.a.visit(v, i, True)
+        sats_b = self.b.visit(v, i,  True)
 
         v.data = torch.zeros(sats_a.shape)
         v.data[:, -1] = sats_b[:, -1]
