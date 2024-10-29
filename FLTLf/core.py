@@ -289,7 +289,7 @@ class Next(Node):
             v.data = torch.roll(v.data, -1) 
             print(v.data)
             # replace with nan the last elements
-            v.data[:,v.data.shape[1]-1] = torch.nan  
+            v.data[:,v.data.shape[1]-1] = torch.nan #v.data[:, -1] 
             # replace nan with 0. doublecheck TODO
             v.data[ v.data.isnan() ] = 0 
 
@@ -325,7 +325,7 @@ class WeakNext(Node):
             v.data = torch.roll(v.data, -1) 
             print(v.data)
             # replace with nan the last elements
-            v.data[:,v.data.shape[1]-1] = torch.nan  
+            v.data[:,v.data.shape[1]-1] = torch.nan   #v.data[:, -1]
             # replace nan with 1. doublecheck TODO
             v.data[ v.data.isnan() ] = 1 
 
@@ -417,9 +417,9 @@ class Release(Node):
 
         v.data[:, -1] = sats_b[:, -1] 
         
-        for i in reversed(range(0, v.data.shape[1] - 1)):
-            v.data[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], v.data[:, i + 1]))
-
+        for j in reversed(range(i-1, maxlength-i-1)):
+            v.data[:, j] = torch.fmin(sats_b[:, j], torch.fmax(sats_a[:, j], v.data[:, j + 1]))
+        
         if(not(keepdim)):
             v.data = v.data[:, v.i]
 
@@ -456,9 +456,9 @@ class StrongRelease(Node):
         v.data = torch.zeros(sats_a.shape)
         v.data[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  
         
-        for i in reversed(range(0, v.data.shape[1] - 1)):
-            v.data[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], v.data[:, i + 1]))
-
+        for j in reversed(range(i-1, maxlength-i-1)):
+            v.data[:, j] = torch.fmin(sats_b[:, j], torch.fmax(sats_a[:, j], v.data[:, j + 1]))
+            
         if(not(keepdim)):
             v.data = v.data[:, v.i]
 
