@@ -14,7 +14,7 @@ debug: bool
 ##### Node (hierarchical formulas) and tree visitor #####
 
 class Node:
-    def visit(self, keepdim) -> torch.tensor:
+    def visit(self, i, keepdim) -> torch.tensor:
         pass
         
 class Visitor:
@@ -908,8 +908,8 @@ class Negate:
         else:
             raise Exception(f"Negation not implemented for {self.exp.name}.") 
 
-    def visit(self, v: Visitor, keepdim):
-        self.neg.visit(v, keepdim)
+    def visit(self, v: Visitor,i:int,  keepdim):
+        self.neg.visit(v, i, keepdim)
         #self.data = self.neg.data  
         return v.data
 
