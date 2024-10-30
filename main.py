@@ -27,28 +27,17 @@ try:
     # Instant i
     i = input.i
 
-    #print("")
-    #print(f"Log max legnth is {converter.maxlength}")
     print(f"Evaluation of {pyformula.print()} at instant {i} :")
-    #print(pyformula.eval(i))
-    #print("")
-
-    #print("0")
-    #print(core.tensor_log)
     
     visitor = core.Visitor() 
     visitor.visit(pyformula, i)
 
     print("Result:")
     
-    #as big as the original tensor
-    #print(visitor.data)
-    #a 1-dimension tensor, for each trace
-    print(visitor.data)
-    #the old evaluation
+    #a 1-dim tensor, for each trace
+    print(visitor.data.to(torch.float)) #dummy casting to avoid printing dtype=torch.half
     
-    #print(core.maxlength)
-
+    #the old evaluation
     if(input.debug):
         print(f"{pyformula.eval(i)} - old code")
     
