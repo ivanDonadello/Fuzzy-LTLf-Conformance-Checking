@@ -42,7 +42,7 @@ print(formula.eval(i))
 This code can be found in the `demo.py` file. For reproducing the results in the BPM 2024 paper, just run `python run_experiments.py`. The results will be save in the `results` folder.
 
 ## A Fast Crisp LTLf Checker
-The implementation uses the Gödel t-norm and co-norm that are the fuzzy counterparts of the AND and OR symbol in propositional logic. Therefore, the code can be used as a fast checker for LTLf where the truth values of the event log are just 0 or 1.
+The implementation uses the Zadeh t-norm and co-norm that are the fuzzy counterparts of the AND and OR symbol in propositional logic. Therefore, the code can be used as a fast checker for LTLf where the truth values of the event log are just 0 or 1.
 
 ## LTLf Syntax
 The LTLf syntax adopted is the following:
