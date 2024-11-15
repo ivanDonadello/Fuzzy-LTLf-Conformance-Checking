@@ -25,12 +25,16 @@ predicate_names = ["cobot_holds", "human_holds", "human_glues", "quality_checkin
 ```
 The log is then converted into a PyTorch tensor with
 ```
-converter: Converter = Converter(input.predicate_names,input.traces)
-core.tensor_log = converter.log2tensor(input.formula,verbose=False)
+converter = Converter(predicate_names)    
+tensor_log = converter.log2tensor(tensor_log,verbose, skippadding) 
+
+core.tensor_log, input.predicate_names = converter.slice_tensor_log(tensor_log, formula, verbose)
+core.tensor_log = core.tensor_log.to(core.device)
+
 core.batch_size = converter.batch_size
 core.maxlength = converter.maxlength
 ```
-where `tensor_log.shape` is equal to `(5, 6, 4)`. The next step is the definition of an LTLf specification and its parsing
+The next step is the definition of an LTLf specification and its parsing
 ```
 parser = LTLfParser()
 formula = "(F(cobot_holds)) > 0.5" 
