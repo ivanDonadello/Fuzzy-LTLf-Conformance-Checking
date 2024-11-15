@@ -95,7 +95,6 @@ for batch_size in batch_sizes:
             start = time.time()
                 
             #slicing of predicates not in formula
-            #the core routine reads the predicate_names from input, so we override them
             core.tensor_log, input.predicate_names = converter.slice_tensor_log(tensor_log, formula, verbose)
             core.tensor_log = core.tensor_log.to(core.device)
                 
@@ -118,13 +117,13 @@ for batch_size in batch_sizes:
 
                 start = time.time()
 
-                visitor = core.Visitor()  #nuovo ogni volta?
+                visitor = core.Visitor()
 
                 print("------------------")
                 print(f"Evaluation of {pyformula.print()} at instant {i} :")
                 try:
                     visitor.visit(pyformula, i)
-                    #pyformula.eval(i) - old evaluation code
+
                 except Exception as e:
                     print(traceback.format_exc())
 
