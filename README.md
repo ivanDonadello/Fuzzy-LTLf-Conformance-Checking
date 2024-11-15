@@ -66,7 +66,7 @@ The LTLf syntax adopted is the following:
 |M               |Strong Release                 |`aMb`            |
 |F               |Finally                        |`F(a)`           |
 |G               |Globally                       |`G(a)`           |
-|<,<=,>,>=,!=,== |Comparison operators           |`((a) >= 0.5)`   |
+|<,<=,>,>=,!=,== |Comparison operators           |`((a) >= 0.5)` or `((a) >= (b))`   |
 
 ## Reference
 Please use the following bibtex entry if you use this code in your work
