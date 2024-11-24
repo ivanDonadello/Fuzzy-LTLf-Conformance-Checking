@@ -1,47 +1,48 @@
 from FLTLf.parser import LTLfParser
-from FLTLf.converter import Converter
 from FLTLf import core
 import input
 import traceback
 import torch
+import torch.nn.functional as F
 
-# preliminary log manipulation and padding 
-converter: Converter = Converter(input.predicate_names,input.traces)
-# prepares the log, also slicing out predicates not in the formula 
-#core.tensor_log = converter.log2tensor(input.formula,verbose=False)
-core.tensor_log = converter.log2tensor(verbose=False) 
-core.tensor_log, input.predicate_names = converter.slice_tensor_log(core.tensor_log, input.formula, verbose=False)
-# number of log traces
-core.batch_size = converter.batch_size
-# length of longest trace
-core.maxlength = converter.maxlength
-# debug (see main.py)
+#padding, for this file only
+def mainFilePadding(data, maxlength) -> torch.Tensor:
+    return F.pad(torch.tensor(data, dtype=torch.float), (0, 0, 0, maxlength - len(data)), mode="constant", value=torch.nan)
+
+core.maxlength = max(len(t) for t in input.traces)
+core.batch_size = len(input.traces)
+
+padded_tensors = [mainFilePadding(t,core.maxlength) for t in input.traces]
+core.tensor_log = torch.stack(padded_tensors, dim=0)
+
 core.debug = input.debug
 
-# Parsing into a formula
+print(core.tensor_log)
+
 parser = LTLfParser()
 
 try:
     pyformula = parser(input.formula)
 
-    # Instant i
-    i = input.i
-
-    print(f"Evaluation of {pyformula.print()} at instant {i} :")
+    print(f"Evaluation of {pyformula.print()} at instant {input.i} :")
     
     visitor = core.Visitor() 
-    visitor.visit(pyformula, i)
+    visitor.visit(pyformula, input.i)
 
-    print("Result:")
+    print("====Result:====")
     
     #a 1-dim tensor, for each trace
-    print(visitor.data.to(torch.float)) #dummy casting to avoid printing dtype=torch.half
+    print(visitor.data.to(torch.float)) #dummy casting to avoid printing dtype
     
-    #the old evaluation
-    if(input.debug):
-        print(f"{pyformula.eval(i)} - old code")
+    #the old evaluation code
+    if(input.oldversion):
+        print(f"{pyformula.eval(input.i)} - old code")
     
 
     
 except Exception as e:
     print(traceback.format_exc())
+
+
+
+

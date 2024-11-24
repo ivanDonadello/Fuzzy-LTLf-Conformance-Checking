@@ -10,6 +10,7 @@ tensor_log: torch.Tensor
 batch_size: int
 maxlength: int
 debug: bool
+type = torch.half #float = 4 byte, half = 2 byte (but some precision loss. why? TODO)
 
 ##### Node (hierarchical formulas) and tree visitor #####
 
@@ -21,14 +22,17 @@ class Visitor:
 
     # visits a node (so typically in DFS)
     def visit(self, node: Node, i:int):
-        
         node.visit(self, i, False)
 
-    # prints a debug output if debug is active, then returns the evaluation
-    def retResult(self, node: Node):
+    def retResult(self, node: Node, i:int ):
         if(debug):
-            print(f"{node.print()}:\n{self.data}")
+            print(f"{node.print()} at {i}:\n{self.data}")
         return self.data
+
+
+# general idea: most visit() sets v.data implicitly
+# apart from leaf nodes and when combining multiple arrays of sub-evaluations
+
 
 ##### propositional #####
 
@@ -38,17 +42,21 @@ class Predicate(Node):
         self.predicate_name = predicate_name
 
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
-        # setting v.data explicitely
+        # sets v.data explicitely
         # so creating a tensor for each leaf of the tree. 
-        # if keepdim, return a tensor from i onwards, padded to maxlength
-        # else, return only the slice for the i-th event
+                    
         if(keepdim):
-            # note the padding
-            v.data = F.pad(tensor_log[:, i:, input.predicate_names.index(self.predicate_name)], (0, i), mode="constant", value=torch.nan)
+            # if keepdim, return a tensor from i onwards
+            v.data =tensor_log[:, i:, input.predicate_names.index(self.predicate_name)]
         else:
-            v.data = (tensor_log[:, i, input.predicate_names.index(self.predicate_name)])
-        
-        return v.retResult(self)
+            # else, return only the slice for the i-th event (nan if out of bounds)
+            if(i < maxlength):
+                v.data = (tensor_log[:, i, input.predicate_names.index(self.predicate_name)])
+            else:
+                #1 nan for each case
+                v.data = torch.full((1,batch_size), torch.nan)
+
+        return v.retResult(self, i)
         
     # eval, here and everywhere else, is the old code
     def eval(self, i: int) -> torch.tensor:
@@ -65,7 +73,7 @@ class ComparisonTerm(Node):
         self.a = a
         self.b = b
         self.op = op
-        self.name = "comparison"
+        self.name = op
 
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
@@ -75,9 +83,9 @@ class ComparisonTerm(Node):
             # if keepdim, use the shape of sat_a
             # else, 1 element for each case
             if(keepdim):
-                sat_b = torch.full(sat_a.shape, self.b, dtype=torch.half)
+                sat_b = torch.full(sat_a.shape, self.b, dtype=type)
             else: 
-                sat_b = torch.full((1,batch_size), self.b, dtype=torch.half)
+                sat_b = torch.full((1,batch_size), self.b, dtype=type)
         else:
             sat_b = self.b.visit(v, i, keepdim)
 
@@ -96,11 +104,8 @@ class ComparisonTerm(Node):
             case "!=":
                 v.data =  torch.where(torch.isnan(sat_a) | torch.isnan(sat_b), torch.nan, torch.ne(sat_a,sat_b))
 
-        # if !keepdim, v.data is a 1-dim tensor with one row
-        if(not(keepdim)):
-            v.data = v.data[0]
-        
-        return v.retResult(self)
+       
+        return v.retResult(self, i)
 
 
     def eval(self, i: int) -> torch.tensor:
@@ -143,10 +148,8 @@ class NegPredicate(Node):
  
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
-        # setting v.data explicitely
-        v.data = torch.sub(1, self.exp.visit(v, i, keepdim))
-
-        return v.retResult(self)
+        torch.sub(1, self.exp.visit(v, i, keepdim))
+        return v.retResult(self, i)
 
     def eval(self, i) -> torch.tensor:
         return 1.0 - self.exp.eval(i)
@@ -166,24 +169,24 @@ class BoolConst(Node):
         # new tensor, as an leaf does
         if(keepdim):
             if(self.const==1):
-                v.data = torch.ones((batch_size,maxlength), dtype=torch.half)
+                v.data = torch.ones((batch_size,maxlength), dtype=type)
             else:
-                v.data = torch.zeros((batch_size,maxlength), dtype=torch.half)
+                v.data = torch.zeros((batch_size,maxlength), dtype=type)
         else:
             if(self.const==1):
-                v.data = torch.ones(batch_size, dtype=torch.half)
+                v.data = torch.ones(batch_size, dtype=type)
             else:
-                v.data = torch.zeros(batch_size, dtype=torch.half)
+                v.data = torch.zeros(batch_size, dtype=type)
 
-        return v.retResult(self)
+        return v.retResult(self, i)
 
     def eval(self, i) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
 
         if(self.const==1):
-            return torch.ones(batch_size, dtype=torch.half)
+            return torch.ones(batch_size, dtype=type)
         else:
-            return torch.zeros(batch_size, dtype=torch.half)
+            return torch.zeros(batch_size, dtype=type)
 
     def print(self):
         return "TRUE" if self.const else "FALSE"  
@@ -197,14 +200,16 @@ class And(Node):
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
         # evaluate first conjunct
-        # this sets v.data
-        self.exprs[0].visit(v, i, keepdim)
+        maxs = self.exprs[0].visit(v, i, keepdim)
 
-        # n-ary conjunction: iterative updating of v.data 
+        # n-ary conjunction: iterative updating of maxs (cannot use v.data) 
         for child in self.exprs[1:]:  
-            v.data = torch.minimum(v.data, child.visit(v,i, keepdim))
+            maxs = torch.minimum(maxs, child.visit(v,i, keepdim))
         
-        return v.retResult(self)
+        # setting v.data explicitely
+        v.data = maxs
+        
+        return v.retResult(self, i)
 
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -225,14 +230,16 @@ class Or(Node):
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
         # evaluate first disjunct
-        # this sets v.data
-        self.exprs[0].visit(v, i, keepdim)
-
-        # n-ary disjunction: iterative updating of v.data 
+        mins = self.exprs[0].visit(v, i, keepdim)
+        
+        # n-ary disjunction: iterative updating of mins (cannot use v.data)  
         for child in self.exprs[1:]:
-            v.data = torch.maximum(v.data, child.visit(v, i, keepdim))
+            mins = torch.maximum(mins,child.visit(v, i, keepdim))
 
-        return v.retResult(self)
+        # setting v.data explicitely
+        v.data= mins
+
+        return v.retResult(self, i)
 
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -250,13 +257,11 @@ class Implication(Node):
     def __init__(self, a, b):
         self.a = a
         self.b = b
-        self.exp = Or([Negate(a), b])
+        # TODO: this adds an additional step. Can we just rewrite implications?
+        self.exp = Or([Negate(a), b]) 
         self.name = "IMPLIES"
 
     def visit(self, v: Visitor, i, keepdim) -> torch.tensor:
-
-        # evaluates self.exp could be impoved TODO
-        # this sets v.data
         self.exp.visit(v, i, keepdim)
         return v.data; 
 
@@ -279,19 +284,20 @@ class Next(Node):
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
                
         if(not(keepdim)):
-            # visit with i+1
+            # visit with i+1 to return only the next value
             v.data = self.exp.visit(v, i+1, keepdim)
         else:
             # otherwise return the tensor of evaluations, shifted left
             v.data = self.exp.visit(v, i, keepdim)
             # shift left
             v.data = torch.roll(v.data, -1) 
-            # replace the last element ()
+            # replace the last element with nan 
             v.data[:,-1] = torch.nan 
-            # replace nans with 0
-            v.data[ v.data.isnan() ] = 0 
+        
+        # replace all nans with 0 TODO: faster if just last one?
+        v.data[ v.data.isnan() ] = 0 
 
-        return v.retResult(self)
+        return v.retResult(self, i)
   
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -301,7 +307,7 @@ class Next(Node):
             sats[ sats.isnan() ] = 0
             return sats
         else:
-            return torch.zeros(batch_size, dtype=torch.half)
+            return torch.zeros(batch_size, dtype=type)
 
     def print(self):
         return self.name + "(" + self.exp.print() + ")"
@@ -321,13 +327,13 @@ class WeakNext(Node):
             v.data = self.exp.visit(v, i, keepdim)
             # shift left
             v.data = torch.roll(v.data, -1) 
-            print(v.data)
-            # replace with nan the last elements
+            # replace the last element with nan
             v.data[:, -1] = torch.nan 
-            # replace nan with 1
-            v.data[ v.data.isnan() ] = 1 
 
-        return v.retResult(self)
+        # replace all nan with 1 TODO: faster if just last one?
+        v.data[ v.data.isnan() ] = 1     
+
+        return v.retResult(self, i)
         
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -350,20 +356,20 @@ class Always(Node):
 
     def visit(self, v: Visitor,i:int, keepdim) -> torch.tensor:
 
-        # setting v.data explicitely
-        # keepdim=True to return the evaluations of self.exp for all positions >= i
-        v.data = self.exp.visit(v, i, True)       
+        # force keepdim
+        self.exp.visit(v, i, True)       
         
         # update the v.data by computing the minimum for each suffix 
-        # j from i-1 to maxlength-i-2
-        for j in reversed(range(i-1, maxlength-i-1)):
+        # j from 0 (~instant i) to last (last=maxlength-1)
+        for j in reversed(range(0, maxlength-i-1)):
             v.data[:, j] = torch.fmin(v.data[:, j], v.data[:, j + 1])
+            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
 
-        # if not(keepdim) then return the evaluation only for instant i
+        # if not(keepdim) then return the evaluation only for 0 (~instant i)
         if(not(keepdim)):
-            v.data = v.data[:, i]
+            v.data = v.data[:, 0]
 
-        return v.retResult(self)
+        return v.retResult(self, i)
        
         
     def eval(self, i: int) -> torch.tensor:
@@ -386,17 +392,18 @@ class Eventually(Node):
     # keepdim=True to return the evaluations of self.exp for all positions >= i
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         v.data = self.exp.visit(v, i, True)        
-        
+              
         # update the v.data by computing the maximum for each suffix 
-        # j from i-1 to maxlength-i-2
-        for j in reversed(range(i-1, maxlength-i-1)): 
+        # j from 0 (~instant i) to last-i (last=maxlength-1)
+        for j in reversed(range(0, maxlength-i-1)):
             v.data[:, j] = torch.fmax(v.data[:, j], v.data[:, j + 1])
-
-        # if not(keepdim) then return the evaluation only for instant i
+            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
+            
+        # if not(keepdim) then return the evaluation only for 0 (~instant i)
         if(not(keepdim)):
-            v.data = v.data[:, i]
+            v.data = v.data[:, 0]
 
-        return v.retResult(self)
+        return v.retResult(self, i)
 
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -406,7 +413,105 @@ class Eventually(Node):
  
     def print(self):
         return self.name + "(" + self.exp.print() + ")"
-    
+
+class Until(Node):
+    # until operator
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+        self.name = "UNTIL"
+
+    def visit(self, v: Visitor,i:int,  keepdim) -> torch.tensor:
+        
+        # this creates new tensors for a and b
+        # also setting v.data
+        # forces keepdim
+        sats_a = self.a.visit(v, i, True)
+        sats_b = self.b.visit(v, i, True)
+
+        # overwrites v.data TODO: we could aboid the next step (v.data=sats)
+        v.data = torch.zeros(sats_a.shape, dtype=type)
+        # last element as sats_b: see semantics
+        v.data[:, -1] = sats_b[:, -1]
+
+        # j from 0 (~instant i) to last (last=maxlength-1)
+        for j in reversed(range(0, maxlength-i-1)):
+            v.data[:, j] = torch.fmax(sats_b[:, j], torch.fmin(sats_a[:, j], v.data[:, j + 1]))
+            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
+        
+        # if not(keepdim) then return the evaluation only for 0 (~instant i)
+        if(not(keepdim)):
+            v.data = v.data[:, 0]
+
+        return v.retResult(self, i)
+ 
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
+
+        ys = torch.zeros(sats_a.shape)
+        ys[:, -1] = sats_b[:, -1]
+                               
+        for i in reversed(range(0, ys.shape[1]-1)):
+            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+        return ys[:, 0]
+
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+
+  
+class WeakUntil(Node):
+    # weak until operator
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+        self.name = "WEAK_UNTIL"
+
+    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
+        
+        # this creates new tensors for a and b
+        # also setting v.data
+        # forces keepdim
+        sats_a = self.a.visit(v, i, True)
+        sats_b = self.b.visit(v, i, True)
+
+        # overwrites v.data 
+        v.data = torch.zeros(sats_a.shape, dtype=type)
+        # last element as their maximum: see semantics
+        v.data[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
+                               
+        # j from 0 (~instant i) to last (last=maxlength-1)
+        for j in reversed(range(0, maxlength-i-1)):
+            v.data[:, j] = torch.fmax(sats_b[:, j], torch.fmin(sats_a[:, j], v.data[:, j + 1]))
+            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
+        
+        # if not(keepdim) then return the evaluation only for 0 (~instant i)
+        if(not(keepdim)):
+            v.data = v.data[:, 0]
+
+        return v.retResult(self, i)
+
+    def eval(self, i: int) -> torch.tensor:
+        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
+
+        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
+        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
+
+        ys = torch.zeros(sats_a.shape)
+        ys[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
+
+        for i in reversed(range(0, ys.shape[1] - 1)):
+            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
+        return ys[:, 0]
+ 
+
+    def print(self):
+        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+
+
 class Release(Node):
     # release operator
     def __init__(self, a, b):
@@ -418,24 +523,25 @@ class Release(Node):
         
         # this creates new tensors for a and b
         # also setting v.data
-        # keepdim=True to return the evaluations for all positions >= i
+        # forces keepdim
         sats_a = self.a.visit(v, i, True)
         sats_b = self.b.visit(v, i, True)
 
-        # overwrites v.data TODO: we could aboid the next step (v.data=sats_b)
-        v.data = torch.zeros(sats_a.shape, dtype=torch.half)
+        # overwrites v.data 
+        v.data = torch.zeros(sats_a.shape, dtype=type)
         # last element as sats_b: see semantics
         v.data[:, -1] = sats_b[:, -1] 
         
-        # updates v.data at each instant j from i-1 to maxlength-i-2
-        for j in reversed(range(i-1, maxlength-i-1)):
+        # j from 0 (~instant i) to last (last=maxlength-1)
+        for j in reversed(range(0, maxlength-i-1)):
             v.data[:, j] = torch.fmin(sats_b[:, j], torch.fmax(sats_a[:, j], v.data[:, j + 1]))
+            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
         
-        # if not(keepdim) then return the evaluation only for instant i
+        # if not(keepdim) then return the evaluation only for 0 (~instant i)
         if(not(keepdim)):
-            v.data = v.data[:, i]
+            v.data = v.data[:, 0]
 
-        return v.retResult(self)
+        return v.retResult(self, i)
         
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -464,23 +570,25 @@ class StrongRelease(Node):
         
         # this creates new tensors for a and b
         # also setting v.data
-        # keepdim=True to return the evaluations for all positions >= i
+        # forces keepdim
         sats_a = self.a.visit(v, i, True)
         sats_b = self.b.visit(v, i, True)
 
-        # overwrites v.data TODO: we could aboid the next step (v.data=sats_b)
-        v.data = torch.zeros(sats_a.shape, dtype=torch.half)
+        # overwrites v.data 
+        v.data = torch.zeros(sats_a.shape, dtype=type)
         # last element as their minimum: see semantics
         v.data[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  
         
-        for j in reversed(range(i-1, maxlength-i-1)):
+        # j from 0 (~instant i) to last (last=maxlength-1)
+        for j in reversed(range(0, maxlength-i-1)):
             v.data[:, j] = torch.fmin(sats_b[:, j], torch.fmax(sats_a[:, j], v.data[:, j + 1]))
+            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
             
-        # if not(keepdim) then return the evaluation only for instant i
+        # if not(keepdim) then return the evaluation only for 0 (~instant i)
         if(not(keepdim)):
-            v.data = v.data[:, i]
+            v.data = v.data[:, 0]
 
-        return v.retResult(self)
+        return v.retResult(self, i)
         
     def eval(self, i: int) -> torch.tensor:
         assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
@@ -497,102 +605,90 @@ class StrongRelease(Node):
 
     def print(self):
         return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
-    
-class WeakUntil(Node):
-    # weak until operator
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
-        self.name = "WEAK_UNTIL"
-
-    def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
-        
-        # this creates new tensors for a and b
-        # also setting v.data
-        # keepdim=True to return the evaluations for all positions >= i
-        sats_a = self.a.visit(v, i, True)
-        sats_b = self.b.visit(v, i, True)
-
-        # overwrites v.data TODO: we could aboid the next step (v.data=sats_b)
-        v.data = torch.zeros(sats_a.shape, dtype=torch.half)
-        # last element as their maximum: see semantics
-        v.data[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
-                               
-        for i in reversed(range(0, v.data.shape[1]-1)):
-            v.data[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], v.data[:, i + 1]))
-
-        # if not(keepdim) then return the evaluation only for instant i
-        if(not(keepdim)):
-            v.data = v.data[:, i]
-
-        return v.retResult(self)
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
-
-        ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
-
-        for i in reversed(range(0, ys.shape[1] - 1)):
-            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-        return ys[:, 0]
- 
-
-    def print(self):
-        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
 
 
-class Until(Node):
-    # until operator
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
-        self.name = "UNTIL"
+class Negate:
+    # negated formula. #TODO is it worth to rewrite the parsed formula instead?
+    def __init__(self, exp):
+        self.exp = exp
+        self.name = "Negation"
 
-    def visit(self, v: Visitor,i:int,  keepdim) -> torch.tensor:
-        
-        # this creates new tensors for a and b
-        # also setting v.data
-        # keepdim=True to return the evaluations for all positions >= i
-        sats_a = self.a.visit(v, i, True)
-        sats_b = self.b.visit(v, i, True)
+        if isinstance(self.exp, Negate):
+            self.neg = self.exp.exp
+        elif isinstance(self.exp, And):
+            neg_exprs = [Negate(e) for e in self.exp.exprs]
+            self.neg = Or(neg_exprs)
+        elif isinstance(self.exp, Or):
+            neg_exprs = [Negate(e) for e in self.exp.exprs]
+            self.neg = And(neg_exprs)
+        elif isinstance(self.exp, Implication):
+            self.neg = And([self.exp.a, Negate(self.exp.b)])
+        elif isinstance(self.exp, BoolConst):
+            self.neg = BoolConst(1.0 - self.exp.x)
+        elif isinstance(self.exp, Next):
+            self.neg = Next(Negate(self.exp.exp))
+        elif isinstance(self.exp, WeakNext):
+            self.neg = WeakNext(Negate(self.exp.exp))
+        elif isinstance(self.exp, Eventually):
+            self.neg = Always(Negate(self.exp.exp))
+        elif isinstance(self.exp, Always):
+            self.neg = Eventually(Negate(self.exp.exp))
+        elif isinstance(self.exp, Predicate):
+            self.neg = NegPredicate(self.exp)
+        elif isinstance(self.exp, ComparisonTerm):
+            self.neg = ComparisonTerm(self.exp.a,self.exp.b,negComparisonOp(self.exp.op))
+        elif isinstance(self.exp, Until):
+            self.neg = Release(Negate(self.exp.a), Negate(self.exp.b))
+        elif isinstance(self.exp, WeakUntil):
+            self.neg = StrongRelease(Negate(self.exp.a), Negate(self.exp.b))
+        elif isinstance(self.exp, Release):
+            self.neg = Until(Negate(self.exp.a), Negate(self.exp.b))
+        elif isinstance(self.exp, StrongRelease):
+            self.neg = WeakUntil(Negate(self.exp.a), Negate(self.exp.b))
+        else:
+            raise Exception(f"Negation not implemented for {self.exp.name}.") 
 
-        # overwrites v.data TODO: we could aboid the next step (v.data=sats_b)
-        v.data = torch.zeros(sats_a.shape, dtype=torch.half)
-        # last element as sats_b: see semantics
-        v.data[:, -1] = sats_b[:, -1]
-                               
-        for i in reversed(range(0, v.data.shape[1]-1)):
-            v.data[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], v.data[:, i + 1]))
-
-        # if not(keepdim) then return the evaluation only for instant i
-        if(not(keepdim)):
-            v.data = v.data[:, i]
-
-        return v.retResult(self)
- 
+    def visit(self, v: Visitor,i:int,  keepdim):
+        self.neg.visit(v, i, keepdim)
+        return v.data
 
     def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
-
-        ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = sats_b[:, -1]
-                               
-        for i in reversed(range(0, ys.shape[1]-1)):
-            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-        return ys[:, 0]
-
-    def print(self):
-        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
+        return self.neg.eval(i)  
     
+    def print(self):
+        return self.neg.print()
 
 
+#### Aux for class Negate ####
+def negComparisonOp(comparisonOp):
+
+    match comparisonOp:
+        case "<":
+            return ">="
+        case ">":
+            return "<="
+        case "=":
+            return "!="
+        case "!=":
+            return "="
+        case "<=":
+            return ">"
+        case ">=":
+            return "<"
+
+
+
+
+
+
+
+
+
+
+
+
+
+#TODO REMOVE THE REST FOR NOW
 
 
 #### Fuzzy-time LTL Temporal Operators ####
@@ -894,62 +990,11 @@ class Lasts:
         return self.name + str(self.t) + "(" + self.exp.print() + ")"
 
 
-#### Negation ####
-
-class Negate:
-    # negated formula, limited to the atomic formulae (excluding )
-    def __init__(self, exp):
-        self.exp = exp
-        self.name = "Negation"
-
-        if isinstance(self.exp, Negate):
-            self.neg = self.exp.exp
-        elif isinstance(self.exp, And):
-            neg_exprs = [Negate(e) for e in self.exp.exprs]
-            self.neg = Or(neg_exprs)
-        elif isinstance(self.exp, Or):
-            neg_exprs = [Negate(e) for e in self.exp.exprs]
-            self.neg = And(neg_exprs)
-        elif isinstance(self.exp, Implication):
-            self.neg = And([self.exp.a, Negate(self.exp.b)])
-        elif isinstance(self.exp, BoolConst):
-            self.neg = BoolConst(1.0 - self.exp.x)
-        elif isinstance(self.exp, Next):
-            self.neg = Next(Negate(self.exp.exp))
-        elif isinstance(self.exp, WeakNext):
-            self.neg = WeakNext(Negate(self.exp.exp))
-        elif isinstance(self.exp, Eventually):
-            self.neg = Always(Negate(self.exp.exp))
-        elif isinstance(self.exp, Always):
-            self.neg = Eventually(Negate(self.exp.exp))
-        elif isinstance(self.exp, Predicate):
-            self.neg = NegPredicate(self.exp)
-        elif isinstance(self.exp, Until):
-            self.neg = Release(Negate(self.exp.a), Negate(self.exp.b))
-        elif isinstance(self.exp, WeakUntil):
-            self.neg = StrongRelease(Negate(self.exp.a), Negate(self.exp.b))
-        elif isinstance(self.exp, Release):
-            self.neg = Until(Negate(self.exp.a), Negate(self.exp.b))
-        elif isinstance(self.exp, StrongRelease):
-            self.neg = WeakUntil(Negate(self.exp.a), Negate(self.exp.b))
-        else:
-            raise Exception(f"Negation not implemented for {self.exp.name}.") 
-
-    def visit(self, v: Visitor,i:int,  keepdim):
-        self.neg.visit(v, i, keepdim)
-        #self.data = self.neg.data  
-        return v.data
+      
 
 
-    def eval(self, i: int) -> torch.tensor:
-        return self.neg.eval(i)  
-    
-    def print(self):
-        return self.neg.print()
-        
+#### Aux #### (for old version)
 
-
-#### Aux ####
 
 #as torch.min, but returns nan iff only nans are present 
 def choosemin(tensor):
