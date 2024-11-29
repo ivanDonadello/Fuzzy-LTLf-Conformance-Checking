@@ -129,4 +129,4 @@ settings_df = pd.DataFrame.from_dict(results)
 results_df = pd.concat([settings_df, results_df], axis=1)
 
 if savefile:
-    results_df.to_csv(os.path.join('experiments', 'results', f'simple_conformance_check_times_{core.device.upper()}.csv'))
+    results_df.to_csv(os.path.join('results', f'simple_conformance_check_times_{core.device.upper()}.csv'))
