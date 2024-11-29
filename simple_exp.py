@@ -61,7 +61,7 @@ for batch_size in batch_sizes:
 
         #padding
         converter = Converter(predicate_names)    
-        tensor_log = converter.log2tensor(tensor_log,verbose,skippadding) 
+        tensor_log = converter.log2tensor(tensor_log,verbose) 
 
         if not(skippadding):
             print(f"PADDING time {time.time() - rand}")
