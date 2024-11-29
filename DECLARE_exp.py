@@ -77,7 +77,7 @@ for batch_size in batch_sizes:
         print(f"RANDOM GEN time {rand - start}")
 
         #padding
-        converter = Converter(predicate_names, trace=[])    
+        converter = Converter(predicate_names)    
         tensor_log = converter.log2tensor(tensor_log,verbose) 
 
         if not(skippadding):
