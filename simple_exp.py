@@ -2,7 +2,7 @@ import time
 import torch
 import pandas as pd
 import pdb
-
+import os
 from FLTLf.parser import LTLfParser
 from FLTLf.converter import Converter
 from FLTLf import core
@@ -61,7 +61,7 @@ for batch_size in batch_sizes:
 
         #padding
         converter = Converter(predicate_names)    
-        tensor_log = converter.log2tensor(tensor_log,verbose) 
+        tensor_log = converter.log2tensor(tensor_log, verbose, skippadding) 
 
         if not(skippadding):
             print(f"PADDING time {time.time() - rand}")
@@ -101,13 +101,12 @@ for batch_size in batch_sizes:
 
                 start = time.time()
 
-                visitor = core.Visitor()  #nuovo ogni volta?
+                visitor = core.Visitor()  
 
                 print("------------------")
                 print(f"Evaluation of {pyformula.print()} at instant {i} :")
                 try:
                     visitor.visit(pyformula, i)
-                    #pyformula.eval(i) - old evaluation code
                 except Exception as e:
                     print(traceback.format_exc())
 
