@@ -39,7 +39,7 @@ simple_declare_formulas = []
 declare_models = []
 
 # loading all DECLARE formulas
-with open(os.path.join("experiments", "data", f"{num_AP}_AP_{number_of_formulas}_constraints.csv"), 'r') as file:
+with open(os.path.join("data", f"{num_AP}_AP_{number_of_formulas}_constraints.csv"), 'r') as file:
     for line in file:
         formula = line.strip().split(",")[1]
         if formula != 'formula':
@@ -77,8 +77,8 @@ for batch_size in batch_sizes:
         print(f"RANDOM GEN time {rand - start}")
 
         #padding
-        converter = Converter(predicate_names)    
-        tensor_log = converter.log2tensor(tensor_log,verbose,skippadding) 
+        converter = Converter(predicate_names, trace=[])    
+        tensor_log = converter.log2tensor(tensor_log,verbose) 
 
         if not(skippadding):
             print(f"PADDING time {time.time() - rand}")
@@ -146,4 +146,4 @@ results_df = pd.concat([settings_df, results_df], axis=1)
 results_df.rename(columns={declare_models[0] : "25 constraints", declare_models[1] : "50 constraints", declare_models[2] : "75 constraints", declare_models[3]: "100 constraints"}, inplace=True)
 
 if savefile:
-    results_df.to_csv(os.path.join('experiments', 'results', f'DECLARE_conformance_check_times_{core.device.upper()}.csv'))
+    results_df.to_csv(os.path.join('results', f'DECLARE_conformance_check_times_{core.device.upper()}.csv'))
