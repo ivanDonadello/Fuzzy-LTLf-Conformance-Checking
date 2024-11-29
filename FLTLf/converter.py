@@ -6,7 +6,7 @@ import input
 
 class Converter:
     
-    def __init__(self, predicate_names: List[str], logtraces: List):
+    def __init__(self, predicate_names: List[str], logtraces: List=[]):
         self.predicate_names = predicate_names
         self.logtraces = logtraces
         self.maxlength: int = 0 # Maximum length across traces
