@@ -1,7 +1,7 @@
 debug = True
+oldversion = False
 
 predicate_names = ["cobot_holds", "human_holds", "human_glues", "qc"]
-predicate_names = ["a", "b" , "c"]
 
 # Each trace is a list of events, each event is a list of predicate values. Use the value 0 for predicates that were not logged in an event.
 traces = []
