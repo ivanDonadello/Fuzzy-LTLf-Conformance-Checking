@@ -1,3 +1,4 @@
+debug = True
 
 predicate_names = ["cobot_holds", "human_holds", "human_glues", "qc"]
 predicate_names = ["a", "b" , "c"]
