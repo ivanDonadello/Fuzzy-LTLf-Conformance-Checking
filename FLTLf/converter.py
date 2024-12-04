@@ -50,7 +50,7 @@ class Converter:
         
     def addPadding(self, data: List) -> torch.Tensor:
         #padded_data = F.pad(torch.tensor(data, dtype=torch.float), (0, 0, 0, self.maxlength - len(data)), mode="constant", value=torch.nan)
-        #this is what the warning (for the above) suggested TODO clone needed?
+        #this is what the warning (for the above) suggested
         padded_data = F.pad(data.clone().detach(), (0, 0, 0, self.maxlength - len(data)), mode="constant", value=torch.nan)
         
         return padded_data

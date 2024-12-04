@@ -10,9 +10,10 @@ tensor_log: torch.Tensor
 batch_size: int
 maxlength: int
 debug: bool
-type = torch.half #float = 4 byte, half = 2 byte (but some precision loss. why? TODO)
+type = torch.half #float = 4 byte, half = 2 byte
 
-##### Node (hierarchical formulas) and tree visitor #####
+
+##### nodes (of the syntactic tree) and tree visitor #####
 
 class Node:
     def visit(self, i, keepdim) -> torch.tensor:
@@ -24,14 +25,18 @@ class Visitor:
     def visit(self, node: Node, i:int):
         node.visit(self, i, False)
 
+    # index i used only for debugging
     def retResult(self, node: Node, i:int ):
         if(debug):
             print(f"{node.print()} at {i}:\n{self.data}")
         return self.data
 
 
-# general idea: most visit() sets v.data implicitly
-# apart from leaf nodes and when combining multiple arrays of sub-evaluations
+# general idea: for a node, visit() doesn't create new tensors of 
+# evaluations, but the current partial evaluation of the subtree 
+# is updated bottom-up from leaves to root. 
+# exceptions are, apart from leaves (predicates, constants), 
+# the comparison nodes, the and/or nodes
 
 
 ##### propositional #####
@@ -53,16 +58,11 @@ class Predicate(Node):
             if(i < maxlength):
                 v.data = (tensor_log[:, i, input.predicate_names.index(self.predicate_name)])
             else:
-                #1 nan for each case
+                # a nan for each trace
                 v.data = torch.full((1,batch_size), torch.nan)
 
         return v.retResult(self, i)
         
-    # eval, here and everywhere else, is the old code
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-        return tensor_log[:, i, input.predicate_names.index(self.predicate_name)]; 
-
     def print(self):
         return self.predicate_name
 
@@ -103,36 +103,9 @@ class ComparisonTerm(Node):
                 v.data =  torch.where(torch.isnan(sat_a) | torch.isnan(sat_b), torch.nan, torch.eq(sat_a,sat_b))
             case "!=":
                 v.data =  torch.where(torch.isnan(sat_a) | torch.isnan(sat_b), torch.nan, torch.ne(sat_a,sat_b))
-
        
         return v.retResult(self, i)
-
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sat_a = self.a.eval(i)
-
-        if(isinstance(self.b, float)):
-            sat_b = self.b
-        else:
-            sat_b = self.b.eval(i)
-
-        # no need to check: OR isnan(sat_b): iff isnan(sat_a)
-        match self.op:
-            case "<":
-                return torch.where(torch.isnan(sat_a), torch.nan, torch.lt(sat_a,sat_b))
-            case "<=":
-                return torch.where(torch.isnan(sat_a), torch.nan, torch.le(sat_a,sat_b))
-            case ">":
-                return torch.where(torch.isnan(sat_a), torch.nan, torch.gt(sat_a,sat_b))
-            case ">=":
-                return torch.where(torch.isnan(sat_a), torch.nan, torch.ge(sat_a,sat_b))
-            case "==":
-                return torch.where(torch.isnan(sat_a), torch.nan, torch.eq(sat_a,sat_b))
-            case "!=":
-                return torch.where(torch.isnan(sat_a), torch.nan, torch.ne(sat_a,sat_b))
-                
+             
     def print(self):
         if(isinstance(self.b, float)):
             return "(" + self.a.print() + " " + self.op + " " + str(self.b) + ")"
@@ -151,12 +124,10 @@ class NegPredicate(Node):
         torch.sub(1, self.exp.visit(v, i, keepdim))
         return v.retResult(self, i)
 
-    def eval(self, i) -> torch.tensor:
-        return 1.0 - self.exp.eval(i)
-    
     def print(self):
         return "NOT(" + self.exp.print() + ")"
     
+
 class BoolConst(Node):
     # boolean contant
     def __init__(self, const):
@@ -191,6 +162,7 @@ class BoolConst(Node):
     def print(self):
         return "TRUE" if self.const else "FALSE"  
 
+
 class And(Node):
     # n-ary conjunction 
     def __init__(self, exprs: list):
@@ -211,15 +183,10 @@ class And(Node):
         
         return v.retResult(self, i)
 
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-            
-        sats = torch.stack([exp.eval(i) for exp in self.exprs])
-        return torch.min(sats, 0).values
-
     def print(self):
         strings = [ exp.print() for exp in self.exprs]
         return (" " + self.name + " ").join(strings)
+
 
 class Or(Node):
     # n-ary disjunction
@@ -241,12 +208,6 @@ class Or(Node):
 
         return v.retResult(self, i)
 
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats = torch.stack([exp.eval(i) for exp in self.exprs])
-        return torch.max(sats, 0).values
-
     def print(self):
         strings = [ exp.print() for exp in self.exprs]
         return (" " + self.name + " ").join(strings)
@@ -265,14 +226,10 @@ class Implication(Node):
         self.exp.visit(v, i, keepdim)
         return v.data; 
 
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        return self.exp.eval(i)
-
     def print(self):
         return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
     
+
 #### standard LTLf Temporal Operators ####
 
 class Next(Node):
@@ -298,20 +255,11 @@ class Next(Node):
         v.data[ v.data.isnan() ] = 0 
 
         return v.retResult(self, i)
-  
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        if i < maxlength - 1:  
-            sats = self.exp.eval(i + 1)
-            sats[ sats.isnan() ] = 0
-            return sats
-        else:
-            return torch.zeros(batch_size, dtype=type)
 
     def print(self):
         return self.name + "(" + self.exp.print() + ")"
     
+
 class WeakNext(Node):
     # weak next operator
     def __init__(self, exp):
@@ -334,20 +282,11 @@ class WeakNext(Node):
         v.data[ v.data.isnan() ] = 1     
 
         return v.retResult(self, i)
-        
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        if i < maxlength - 1:  
-            sats = self.exp.eval(i + 1)
-            sats[ sats.isnan() ] = 1
-            return sats
-        else:
-            return torch.ones(batch_size)
 
     def print(self):
         return self.name + "(" + self.exp.print() + ")"
     
+
 class Always(Node):
     # always operator
     def __init__(self, exp):
@@ -359,29 +298,23 @@ class Always(Node):
         # force keepdim
         self.exp.visit(v, i, True)       
         
-        # update the v.data by computing the minimum for each suffix 
-        # j from 0 (~instant i) to last (last=maxlength-1)
-        for j in reversed(range(0, maxlength-i-1)):
-            v.data[:, j] = torch.fmin(v.data[:, j], v.data[:, j + 1])
-            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
-
-        # if not(keepdim) then return the evaluation only for 0 (~instant i)
+        # shortcut
         if(not(keepdim)):
-            v.data = v.data[:, 0]
+            v.data = choosemin(v.data)
+        
+        else:
+            # update the v.data by computing the minimum for each suffix 
+            # j from 0 (~instant i) to last (last=maxlength-1)
+            for j in reversed(range(0, maxlength-i-1)):
+                v.data[:, j] = torch.fmin(v.data[:, j], v.data[:, j + 1])
+                if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
 
         return v.retResult(self, i)
-       
-        
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats = torch.stack([self.exp.eval(j) for j in range(i, maxlength)], 1)
-        #print(f"))))){sats}")
-        return choosemin(sats)
         
     def print(self):
         return self.name + "(" + self.exp.print() + ")"
     
+
 class Eventually(Node):
     # eventually operator
     def __init__(self, exp):
@@ -392,27 +325,23 @@ class Eventually(Node):
     # keepdim=True to return the evaluations of self.exp for all positions >= i
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         v.data = self.exp.visit(v, i, True)        
-              
-        # update the v.data by computing the maximum for each suffix 
-        # j from 0 (~instant i) to last-i (last=maxlength-1)
-        for j in reversed(range(0, maxlength-i-1)):
-            v.data[:, j] = torch.fmax(v.data[:, j], v.data[:, j + 1])
-            if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
-            
-        # if not(keepdim) then return the evaluation only for 0 (~instant i)
+
+        # shortcut
         if(not(keepdim)):
-            v.data = v.data[:, 0]
+            v.data = choosemax(v.data)
+
+        else:
+            # update the v.data by computing the maximum for each suffix 
+            # j from 0 (~instant i) to last-i (last=maxlength-1)
+            for j in reversed(range(0, maxlength-i-1)):
+                v.data[:, j] = torch.fmax(v.data[:, j], v.data[:, j + 1])
+                if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
 
         return v.retResult(self, i)
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats = torch.stack([self.exp.eval(j) for j in range(i, maxlength)], 1)        
-        return choosemax(sats)
  
     def print(self):
         return self.name + "(" + self.exp.print() + ")"
+
 
 class Until(Node):
     # until operator
@@ -444,20 +373,6 @@ class Until(Node):
             v.data = v.data[:, 0]
 
         return v.retResult(self, i)
- 
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
-
-        ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = sats_b[:, -1]
-                               
-        for i in reversed(range(0, ys.shape[1]-1)):
-            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-        return ys[:, 0]
 
     def print(self):
         return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
@@ -494,20 +409,6 @@ class WeakUntil(Node):
 
         return v.retResult(self, i)
 
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
-
-        ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
-
-        for i in reversed(range(0, ys.shape[1] - 1)):
-            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-        return ys[:, 0]
- 
-
     def print(self):
         return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
 
@@ -542,23 +443,11 @@ class Release(Node):
             v.data = v.data[:, 0]
 
         return v.retResult(self, i)
-        
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
-        ys = torch.zeros(sats_a.shape)
-
-        ys[:, -1] = sats_b[:, -1] 
-        
-        for i in reversed(range(0, ys.shape[1] - 1)):
-            ys[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], ys[:, i + 1]))
-        return ys[:, 0]
 
     def print(self):
         return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
     
+
 class StrongRelease(Node):
     # strong release opeator
     def __init__(self, a, b):
@@ -589,26 +478,13 @@ class StrongRelease(Node):
             v.data = v.data[:, 0]
 
         return v.retResult(self, i)
-        
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        sats_a = torch.stack([self.a.eval(j) for j in range(i, maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i, maxlength)], 1)
-        ys = torch.zeros(sats_a.shape)
-
-        ys[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  
-        
-        for i in reversed(range(0, ys.shape[1] - 1)):
-            ys[:, i] = torch.fmin(sats_b[:, i], torch.fmax(sats_a[:, i], ys[:, i + 1]))
-        return ys[:, 0]
 
     def print(self):
         return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
 
 
 class Negate:
-    # negated formula. #TODO is it worth to rewrite the parsed formula instead?
+    # negated formula. atm, no rewriting is performed
     def __init__(self, exp):
         self.exp = exp
         self.name = "Negation"
@@ -651,9 +527,6 @@ class Negate:
     def visit(self, v: Visitor,i:int,  keepdim):
         self.neg.visit(v, i, keepdim)
         return v.data
-
-    def eval(self, i: int) -> torch.tensor:
-        return self.neg.eval(i)  
     
     def print(self):
         return self.neg.print()
@@ -676,356 +549,16 @@ def negComparisonOp(comparisonOp):
         case ">=":
             return "<"
 
-
-
-
-
-
-
-
-
-
-
-
-
-#TODO REMOVE THE REST FOR NOW
-
-
-#### Fuzzy-time LTL Temporal Operators ####
-#### THESE ARE ALL TODO (still the old version)
-
-class Soon:
-    # soon operator
-    def __init__(self, exp):
-        self.exp = exp
-        self.name = "SOON"
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        # diffently from the semantics, we do not evaluate X phi but phi
-        # we retrict to instants in [i+1, min(i+eta,last)]
-        sats = torch.stack([( torch.mul( self.exp.eval(j), input.weights(j-i) )) for j in range(i+1, min(i+input.eta,maxlength) )], 1)
-        return choosemax(sats)
-   
-    def print(self):
-        return self.name + "(" + self.exp.print() + ")"
-    
-class BoundedEventually:
-    # bounded version of the eventually operator
-    def __init__(self, exp, t: int):
-        self.exp = exp
-        self.t = t
-        
-        self.name = "EVENTUALLY_IN_"
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        # from i to min(i+t,last)
-        sats = torch.stack([ self.exp.eval(j) for j in range(i, min(i+self.t+1,maxlength) )], 1)
-        return choosemax(sats)
-   
-    def print(self):
-        return self.name +  str(self.t) + "(" + self.exp.print() + ")"
-    
-class BoundedGlobally:
-    # bounded version of the awalys operator
-    def __init__(self, exp, t: int):
-        self.exp = exp
-        self.t = t
-        self.name = "ALWAYS_IN_"
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        #from i to min(i+t,last)
-        sats = torch.stack([ self.exp.eval(j) for j in range(i, min(i+self.t+1,maxlength) )], 1)
-        return choosemin(sats)
-   
-    def print(self):
-        return self.name +  str(self.t) + "(" + self.exp.print() + ")"
-
-class Within:
-    # within operator
-    def __init__(self, exp, t: int):
-        self.exp = exp
-        self.t = t        
-        self.name = "WITHIN_"
-
-    def eval(self, i: int) -> torch.tensor:
-        # we retrict to instants in [i, min(i+t+eta,last)]
-        sats = torch.stack([( torch.mul( self.exp.eval(j), input.weights(j-i-self.t) )) for j in range(i, min(i+self.t+input.eta,maxlength) )], 1)
-        return choosemax(sats)
-   
-    def print(self):
-        return self.name +  str(self.t) + "(" + self.exp.print() + ")"
-
-class BoundedUntil:
-    # bounded version of the until operator
-    def __init__(self, a, b, t: int):
-        self.a = a
-        self.b = b
-        self.t = t
-        self.name = "UNTIL_"
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        if(self.t<1):
-            return self.b.eval(i)
-        else:
-            # from i to min(i+t,last)
-            sats_a = torch.stack([self.a.eval(j) for j in range(i, min(i+self.t+1, maxlength))], 1)
-            sats_b = torch.stack([self.b.eval(j) for j in range(i, min(i+self.t+1, maxlength))], 1)
-
-            ys = torch.zeros(sats_a.shape)
-            ys[:, -1] = sats_b[:, -1]
-                                
-            for i in reversed(range(0, ys.shape[1]-1)):
-                ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-            return ys[:, 0]
-   
-    def print(self):
-        return "(" + self.a.print() + " " + self.name + str(self.t) + " " + self.b.print() + ")"           
-
-
-class AlmostAlways:
-    # almost always operator
-    def __init__(self, exp):
-        self.exp = exp
-        self.name = "ALMOST_ALWAYS"
-        
-    def eval(self, i: int) -> torch.tensor:
-        
-        globalmax = torch.zeros(batch_size)
-
-        global tensor_log
-        
-        #this would be be exponential: 
-        # try filtering each element of the powerset of indexes, of length up to eta-1
-        #for exclude in list(powerset(range(i,maxlength),input.eta)):
-
-        #instead, we use sorting 
-        #to exclude incrementally i,i+1,... up to min(eta-1,last)
-
-        #first, we evaluate without filtering any index
-        sats = torch.stack([  self.exp.eval(j) for j in range(i,maxlength)], 1)
-        globalmax = choosemin(sats)
-
-        #cloning, since this could be a subcall
-        orig_tensor_log = tensor_log.clone()
-        tensor_log,indexes = tensor_log.sort(dim=1)
-        
-        exclude = []
-        
-        #we can exclude up to eta-1 events, so from i to min(i+eta-1,last)
-        for x in range(i, min(i+input.eta,maxlength)):
-            exclude.append(x)
-            
-            if(len(exclude)<maxlength):
-
-                #incrementally, we exclude instants at the beginning of the sorted sequence
-                keep = (x for x in range(i, maxlength) if x not in exclude)
-                sats = torch.stack([  self.exp.eval(j) for j in keep], 1)
-
-                #print(f"--- exclude {exclude} weight is {input.weights(len(exclude))}")
-                #print(f"sats: {sats}")
-
-                mins = torch.mul( choosemin(sats) , input.weights(len(exclude)))
-
-                #print(f"mins: {mins}")
-
-                globalmax = torch.fmax(globalmax,mins)
-
-        #restoring the log
-        tensor_log = orig_tensor_log
-        return globalmax
-        
-    def print(self):
-        return self.name + "(" + self.exp.print() + ")"
-    
-
-class BoundedAlmostAlways:
-    # bounded version of the almost always operator
-    def __init__(self, exp, t:int):
-        self.exp = exp
-        self.t = t
-        self.name = "ALMOST_ALWAYS_"
-        
-    def eval(self, i: int) -> torch.tensor:
-        
-        globalmax = torch.zeros(batch_size)
-
-        global tensor_log
-        
-        sats = torch.stack([  self.exp.eval(j) for j in range(i,min(i+input.eta,maxlength))], 1)
-        globalmax = choosemin(sats)
-
-        orig_tensor_log = tensor_log.clone()
-        tensor_log,indexes = tensor_log.sort(dim=1)
-        
-        exclude = []
-
-        # t used here
-        #we can exclude up to eta-1 events, so from i to min(eta-1,i+t,last)
-        for x in range(i, min(input.eta,i+self.t+1,maxlength)):
-            exclude.append(x)
-            print(i)
-            print(str(input.eta))
-            print(str(i+self.t+1))
-            print(maxlength)
-            
-            if(i+len(exclude)<maxlength):
-
-                print(f"--- exclude {exclude} weight is {input.weights(len(exclude))}")
-                
-                keep = (x for x in range(i, min(i+self.t+1,maxlength)) if x not in exclude)
-                sats = torch.stack([  self.exp.eval(j) for j in keep], 1)
-
-                print(f"sats: {sats}")
-
-                mins = torch.mul( choosemin(sats) , input.weights(len(exclude)))
-
-                #print(f"mins: {mins}")
-
-                globalmax = torch.fmax(globalmax,mins)
-
-        #restoring the log
-        tensor_log = orig_tensor_log
-        return globalmax
-        
-    def print(self):
-        return self.name + str(self.t) + "(" + self.exp.print() + ")"
-    
-
-
-class AlmostUntil:
-    # almost until operator
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
-        self.name = "ALMOST_UNTIL"
-        
-    def eval(self, i: int) -> torch.tensor:
-        
-        globalmax = torch.zeros(batch_size)
-
-        global tensor_log
-            
-        sats_a = torch.stack([self.a.eval(j) for j in range(i,maxlength)], 1)
-        sats_b = torch.stack([self.b.eval(j) for j in range(i,maxlength)], 1)
-        
-        ys = torch.zeros(sats_a.shape)
-        ys[:, -1] = sats_b[:, -1]
-        
-        for i in reversed(range(0, ys.shape[1]-1)):
-            ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-                    
-        globalmax = ys[:, 0]
-        
-        orig_tensor_log = tensor_log.clone()
-        tensor_log,indexes = tensor_log.sort(dim=1)
-            
-        exclude = []
-
-        #we can exclude up to eta-1 events, so from i to min(i+eta-1,last)
-        for x in range(i, min(i+input.eta,maxlength)):
-            exclude.append(x)
-                
-            if(i+len(exclude)<maxlength):
-                
-                #here I need to store it with list(), cause generators are not rewund
-                keep = list(x for x in range(i, maxlength) if x not in exclude)
-            
-                sats_a = torch.stack([self.a.eval(j) for j in keep], 1)
-                sats_b = torch.stack([self.b.eval(j) for j in keep], 1)
-
-                ys = torch.zeros(sats_a.shape)
-                ys[:, -1] = sats_b[:, -1]
-                                        
-                for i in reversed(range(0, ys.shape[1]-1)):
-                    ys[:, i] = torch.fmax(sats_b[:, i], torch.fmin(sats_a[:, i], ys[:, i + 1]))
-                    
-                globalmax = torch.fmax(globalmax,ys[:,0])
-
-        #restoring the log
-        tensor_log = orig_tensor_log
-        return globalmax
-    
-        
-    def print(self):
-        return "(" + self.a.print() + " " + self.name + " " + self.b.print() + ")"
-
-
-#TODO BoundedAlmostUntil
-
-class Lasts:
-    # lasts operator
-    def __init__(self, exp, t:int):
-        self.exp = exp
-        self.t = t
-        self.name = "LASTS_"
-
-    def eval(self, i: int) -> torch.tensor:
-        assert i <= maxlength, f"i exceeds maxlength ({i}>{maxlength})"
-
-        from FLTLf.parser import LTLfParser
-        parser = LTLfParser()
-        
-        globalmax = torch.zeros(batch_size)
-
-        #from 0 to min(t,eta-1,last)
-        for j in range(0, min(self.t+1, i+input.eta, maxlength)):
-
-            #this is the only operator when we rewrite the formula (apart from ->)
-            #note: we saw the parsing takes time
-            pyformula = parser("BG[" + str(self.t-j) + "](" + self.exp.print() + ")")  
-            #print(f"evaluate {pyformula.print()} in instant {i}")   
-            globalmax = torch.fmax(globalmax, torch.mul( pyformula.eval(i), input.weights(j) ) )
-
-        return globalmax
-   
-    def print(self):
-        return self.name + str(self.t) + "(" + self.exp.print() + ")"
-
-
-      
-
-
-#### Aux #### (for old version)
-
-
-#as torch.min, but returns nan iff only nans are present 
+#### Aux for always/eventually ####
 def choosemin(tensor):
-
-    #only works for simple formulas. to investigate
-    #masked = masked_tensor(tensor, ~torch.isnan(tensor))
-    #return torch.amin(masked, 1)
-
     tensor = torch.nan_to_num(tensor, nan=2) 
     tmp = torch.min(tensor, 1).values
     tmp[tmp == 2] = torch.nan
     return tmp
 
-#same, for max
 def choosemax(tensor):
     tensor = torch.nan_to_num(tensor, nan=-2)
     tmp = torch.max(tensor, 1).values
     tmp[tmp == -2] = torch.nan
     return tmp
-
-def powerset(alist,maxlen):
-    s = list(alist)
-    return chain.from_iterable(combinations(s, r) for r in range(min(maxlen,len(s))+1))
-
-# generates a set of subtensors, for instants in {i,...,length}
-def estract_sub_logs(tensor_log: torch.Tensor, i:int, length:int):
-    sublogs = []
-    for indices in list(powerset(range(i,length))):
-        if len(indices) > 0:#TODO FORSE NO
-            tmp_sublog = tensor_log[:, indices, :]
-            sublogs.append(tmp_sublog)
-    return sublogs
-
 

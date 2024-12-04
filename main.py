@@ -34,12 +34,6 @@ try:
     #a 1-dim tensor, for each trace
     print(visitor.data.to(torch.float)) #dummy casting to avoid printing dtype
     
-    #the old evaluation code
-    if(input.oldversion):
-        print(f"{pyformula.eval(input.i)} - old code")
-    
-
-    
 except Exception as e:
     print(traceback.format_exc())
 

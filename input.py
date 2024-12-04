@@ -1,5 +1,5 @@
-debug = True
-oldversion = False
+#print debug messages during evaluation
+debug = False
 
 predicate_names = ["cobot_holds", "human_holds", "human_glues", "qc"]
 
@@ -14,24 +14,7 @@ traces.append( [[0.3, 0, 0, 0], [0.51, 0.32, 0.89, 0.72]] )
 
 #the formula
 formula = "G(a -> X(b))"
-formula = "G((cobot_holds && human_holds) <-> X(human_glues))"
 formula = "(human_glues U cobot_holds)" 
-formula = "S(cobot_holds)" 
-formula = "BF[61](cobot_holds & human_glues)"
-formula = "(human_glues BU[11] cobot_holds)" 
-formula = "S(cobot_holds)"
-formula = "FG(cobot_holds)" 
-formula = "F XX(cobot_holds)" 
-formula = "IN[34](cobot_holds & human_glues)"
-formula = "AG(X(cobot_holds))" 
-formula = "X AG(cobot_holds)"
-formula = "X BAG[1](cobot_holds)"
-formula = "human_glues AU cobot_holds"
-formula = "L[3](cobot_holds)"
-formula = "AG(cobot_holds)" 
-formula = "(human_glues AU cobot_holds) | AG(cobot_holds)" 
-formula = "BAG[3](cobot_holds)" 
-formula = "L[2](cobot_holds)" 
 
 #with comparisons
 #use parentheses around subformulas
@@ -44,8 +27,7 @@ formula = "(G(cobot_holds > 0.1)) & F cobot_holds"
 formula = "(G(cobot_holds > 0.2))" 
 formula = "F(((G(cobot_holds > 0.1)) & F cobot_holds) > 0.6)"
 
+
 #the instant
 i=0
 
-
-formula = "F(((!(cobot_holds)U(human_glues)) | G((((!(qc)U(cobot_holds)) | G(!(human_holds)))) != (G(F(qc) -> !(cobot_holds))))) == (F(human_glues) -> F(qc)) )" 
