@@ -80,9 +80,9 @@ The LTLf syntax adopted is the following:
 The experiments are stress tests measuring the computational running time of the fuzzy conformance checker by varying the number of events, the number of traces in the log, the complexity of the LTLf formula.
 
 The experiments involving simple LTLf formulas can be executed by running:
-`python simple_exp.py`
+```python simple_exp.py```
 whereas experiments involving complex LTLf formulas are executed by running:
-`python DECLARE_exp.py`
+```python DECLARE_exp.py```
 The results will be saved in the `results` folder.
 
 ## Remarks: A Fast Crisp LTLf Checker
