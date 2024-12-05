@@ -77,8 +77,15 @@ The LTLf syntax adopted is the following:
 |<,<=,>,>=,!=,== |Comparison operators           |`((a) >= 0.5)` or `((a) >= (b))`   |
 
 ## Running the Experiments
+The experiments are stress tests measuring the computational running time of the fuzzy conformance checker by varying the number of events, the number of traces in the log, the complexity of the LTLf formula.
 
-## REMARKS: A Fast Crisp LTLf Checker
+The experiments involving simple LTLf formulas can be executed by running:
+`python simple_exp.py`
+whereas experiments involving complex LTLf formulas are executed by running:
+`python DECLARE_exp.py`
+The results will be saved in the `results` folder.
+
+## Remarks: A Fast Crisp LTLf Checker
 The implementation uses the Zadeh t-norm and co-norm that are the fuzzy counterparts of the AND and OR symbol in propositional logic. Therefore, the code can be used as a fast checker for LTLf where the truth values of the event log are just 0 or 1.
 
 ## Reference
