@@ -2,11 +2,11 @@
 The repository implements a fast conformance checker for fuzzy logs against temporal specifications in Fuzzy Linear Temporal Logic on finite traces (FLTLf) as described in the paper "Conformance Checking of Fuzzy Logs against Declarative Temporal Specifications".
 
 This tutorial is structured as follows:
-1. A **requirements** section listing the needed software dependencies.
-2. A **usage** section that explains how to define a fuzzy log, an LTLf formula and running the conformance checker.
-3. An **LTLf Syntax** section.[bo](#LTLf-Syntax)
-4. A **running the experiments** section explaining how to reproduce the experiments.
-5. A **remarks** section and how to cite this work.
+1. A [**requirements**](#LTLf-Syntax) section listing the needed software dependencies.
+2. A [**usage**](#LTLf-Syntax) section that explains how to define a fuzzy log, an LTLf formula and running the conformance checker.
+3. An [**LTLf Syntax**](#LTLf-Syntax) section.
+4. A [**running the experiments**](#LTLf-Syntax) section explaining how to reproduce the experiments.
+5. A [**remarks**](#LTLf-Syntax) section and how to [cite](#LTLf-Syntax) this work.
 
 ## Requirements
 Implemented with Python 3.8.15, the project requires with the following dependencies:
