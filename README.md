@@ -30,17 +30,8 @@ this fuzzy event log contains 5 traces, the maximum number of events is 6 and th
 ```
 predicate_names = ["cobot_holds", "human_holds", "human_glues", "quality_checking"]
 ```
-The log is then converted into a PyTorch tensor with
-```
-converter = Converter(predicate_names)    
-tensor_log = converter.log2tensor(tensor_log,verbose, skippadding) 
+The log then must be converted into a PyTorch tensor, we provide some code for doing that.
 
-core.tensor_log, input.predicate_names = converter.slice_tensor_log(tensor_log, formula, verbose)
-core.tensor_log = core.tensor_log.to(core.device)
-
-core.batch_size = converter.batch_size
-core.maxlength = converter.maxlength
-```
 The next step is the definition of an LTLf specification and its parsing
 ```
 parser = LTLfParser()
@@ -53,7 +44,10 @@ i = 0
 visitor = core.Visitor()
 visitor.visit(pyformula, i)
 ```
-This code can be found in the `demo.py` file. For reproducing the results of the experiments, just run `python simple_exp.py` and `python DECLARE_exp.py`. The results will be save in the `results` folder.
+This procedure requires the use of two files. The file `input.py` contains the predicates names, the fuzzy traces, the LTLf formula and the instant `i` of the evaluation. Users needs to modify this file according to their own task. The file `main.py` contains the padding and the conversion of the fuzzy traces into a PyTorch tensor and the running of the conformance checker. It is executed by running
+```
+python main.py
+```
 
 ## LTLf Syntax
 The LTLf syntax adopted is the following:
