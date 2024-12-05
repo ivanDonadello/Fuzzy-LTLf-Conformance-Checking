@@ -1,6 +1,13 @@
 # Fuzzy Linear Temporal Logic on Finite traces
 The repository implements a fast conformance checker for fuzzy logs against temporal specifications in Fuzzy Linear Temporal Logic on finite traces (FLTLf) as described in the paper "Conformance Checking of Fuzzy Logs against Declarative Temporal Specifications".
 
+This tutorial is structured as follows:
+1. A **requirements** section listing the needed software dependencies.
+2. A **usage** section that explains how to define a fuzzy log, an LTLf formula and running the conformance checker.
+3. An **LTLf Syntax** section.
+4. A **running the experiments** section explaining how to reproduce the experiments.
+5. A **remarks** section and how to cite this work.
+
 ## Requirements
 Implemented with Python 3.8.15, the project requires with the following dependencies:
 ```
@@ -48,9 +55,6 @@ visitor.visit(pyformula, i)
 ```
 This code can be found in the `demo.py` file. For reproducing the results of the experiments, just run `python simple_exp.py` and `python DECLARE_exp.py`. The results will be save in the `results` folder.
 
-## A Fast Crisp LTLf Checker
-The implementation uses the Zadeh t-norm and co-norm that are the fuzzy counterparts of the AND and OR symbol in propositional logic. Therefore, the code can be used as a fast checker for LTLf where the truth values of the event log are just 0 or 1.
-
 ## LTLf Syntax
 The LTLf syntax adopted is the following:
 |        Symbol  |            Meaning            |Example          |
@@ -71,6 +75,11 @@ The LTLf syntax adopted is the following:
 |F               |Finally                        |`F(a)`           |
 |G               |Globally                       |`G(a)`           |
 |<,<=,>,>=,!=,== |Comparison operators           |`((a) >= 0.5)` or `((a) >= (b))`   |
+
+## Running the Experiments
+
+## REMARKS: A Fast Crisp LTLf Checker
+The implementation uses the Zadeh t-norm and co-norm that are the fuzzy counterparts of the AND and OR symbol in propositional logic. Therefore, the code can be used as a fast checker for LTLf where the truth values of the event log are just 0 or 1.
 
 ## Reference
 Please use the following bibtex entry if you use this code in your work
