@@ -6,7 +6,7 @@ This tutorial is structured as follows:
 2. A [**usage**](#Usage) section that explains how to define a fuzzy log, an LTLf formula and running the conformance checker.
 3. An [**LTLf Syntax**](#LTLf-Syntax) section.
 4. A [**running the experiments**](#Running-the-Experiments) section explaining how to reproduce the experiments.
-5. A [**remarks**](#Remarks:-A-Fast-Crisp-LTLf-Checker) section and how to [cite](#Reference) this work.
+5. A [**remarks**](#Remarks-A-Fast-Crisp-LTLf-Checker) section and how to [cite](#Reference) this work.
 
 ## Requirements
 Implemented with Python 3.8.15, the project requires with the following dependencies:
