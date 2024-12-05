@@ -4,7 +4,7 @@ The repository implements a fast conformance checker for fuzzy logs against temp
 This tutorial is structured as follows:
 1. A **requirements** section listing the needed software dependencies.
 2. A **usage** section that explains how to define a fuzzy log, an LTLf formula and running the conformance checker.
-3. An **LTLf Syntax** section.
+3. An **LTLf Syntax** section.[bo](#LTLf-Syntax)
 4. A **running the experiments** section explaining how to reproduce the experiments.
 5. A **remarks** section and how to cite this work.
 
@@ -87,7 +87,7 @@ whereas experiments involving complex LTLf formulas are executed by running:
 ```
 python DECLARE_exp.py
 ```
-The results will be saved in the `results` folder.
+The results are saved in the `results` folder.
 
 ## Remarks: A Fast Crisp LTLf Checker
 The implementation uses the Zadeh t-norm and co-norm that are the fuzzy counterparts of the AND and OR symbol in propositional logic. Therefore, the code can be used as a fast checker for LTLf where the truth values of the event log are just 0 or 1.
