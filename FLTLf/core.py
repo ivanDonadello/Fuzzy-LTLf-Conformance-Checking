@@ -121,7 +121,7 @@ class NegPredicate(Node):
  
     def visit(self, v: Visitor, i:int, keepdim) -> torch.tensor:
         
-        torch.sub(1, self.exp.visit(v, i, keepdim))
+        v.data = torch.sub(1, self.exp.visit(v, i, keepdim))
         return v.retResult(self, i)
 
     def print(self):
