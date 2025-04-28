@@ -365,7 +365,7 @@ class Until(Node):
 
         # j from 0 (~instant i) to last (last=maxlength-1)
         for j in reversed(range(0, maxlength-i-1)):
-            v.data[:, j] = torch.fmax(sats_b[:, j], torch.fmin(sats_a[:, j], v.data[:, j + 1]))
+            v.data[:, j] = torch.fmax(sats_b[:, j], torch.min(sats_a[:, j], v.data[:, j + 1]))
             if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
         
         # if not(keepdim) then return the evaluation only for 0 (~instant i)
@@ -396,7 +396,7 @@ class WeakUntil(Node):
         # overwrites v.data 
         v.data = torch.zeros(sats_a.shape, dtype=type)
         # last element as their maximum: see semantics
-        v.data[:, -1] = torch.fmax(sats_a[:, -1], sats_b[:, -1])
+        v.data[:, -1] = torch.max(sats_a[:, -1], sats_b[:, -1])
                                
         # j from 0 (~instant i) to last (last=maxlength-1)
         for j in reversed(range(0, maxlength-i-1)):
@@ -435,7 +435,7 @@ class Release(Node):
         
         # j from 0 (~instant i) to last (last=maxlength-1)
         for j in reversed(range(0, maxlength-i-1)):
-            v.data[:, j] = torch.fmin(sats_b[:, j], torch.fmax(sats_a[:, j], v.data[:, j + 1]))
+            v.data[:, j] = torch.fmin(sats_b[:, j], torch.max(sats_a[:, j], v.data[:, j + 1]))
             if(debug): print(f"instant {j+i}/{maxlength-1}: {v.data[:,j]}")
         
         # if not(keepdim) then return the evaluation only for 0 (~instant i)
@@ -466,7 +466,7 @@ class StrongRelease(Node):
         # overwrites v.data 
         v.data = torch.zeros(sats_a.shape, dtype=type)
         # last element as their minimum: see semantics
-        v.data[:, -1] = torch.fmin(sats_a[:, -1], sats_b[:, -1])  
+        v.data[:, -1] = torch.min(sats_a[:, -1], sats_b[:, -1])  
         
         # j from 0 (~instant i) to last (last=maxlength-1)
         for j in reversed(range(0, maxlength-i-1)):
